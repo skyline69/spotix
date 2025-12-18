@@ -1,4 +1,4 @@
-use druid::widget::{prelude::*, Controller};
+use druid::widget::{Controller, prelude::*};
 
 use crate::{
     cmd,

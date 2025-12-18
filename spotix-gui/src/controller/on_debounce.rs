@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use druid::{widget::Controller, Data, Env, Event, EventCtx, TimerToken, UpdateCtx, Widget};
+use druid::{Data, Env, Event, EventCtx, TimerToken, UpdateCtx, Widget, widget::Controller};
 
 pub struct OnDebounce<T> {
     duration: Duration,

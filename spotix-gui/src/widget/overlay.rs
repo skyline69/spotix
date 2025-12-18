@@ -1,4 +1,4 @@
-use druid::{widget::prelude::*, Data, Point, Vec2, WidgetPod};
+use druid::{Data, Point, Vec2, WidgetPod, widget::prelude::*};
 
 pub enum OverlayPosition {
     Bottom,

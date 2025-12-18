@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use druid::{
-    widget::{CrossAxisAlignment, Flex, Slider},
     FontDescriptor, FontFamily, LensExt, Selector, Widget, WidgetExt,
+    widget::{CrossAxisAlignment, Flex, Slider},
 };
 
 use crate::{

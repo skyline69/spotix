@@ -1,6 +1,6 @@
 use std::{env, ffi::CString, ops::Deref};
 
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 
 use crate::{
     actor::{Act, Actor, ActorHandle},

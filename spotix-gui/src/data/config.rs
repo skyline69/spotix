@@ -10,13 +10,13 @@ use std::os::unix::fs::OpenOptionsExt;
 
 use druid::{Data, Lens, Size};
 use platform_dirs::AppDirs;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use spotix_core::{
-    cache::{mkdir_if_not_exists, CacheHandle},
+    cache::{CacheHandle, mkdir_if_not_exists},
     connection::Credentials,
     player::PlaybackConfig,
     session::{SessionConfig, SessionConnection},
 };
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{Nav, Promise, QueueBehavior, SliderScrollScale};
 use crate::ui::theme;

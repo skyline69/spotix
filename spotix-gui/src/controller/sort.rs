@@ -1,9 +1,9 @@
-use druid::widget::{prelude::*, Controller};
+use druid::widget::{Controller, prelude::*};
 use druid::{Event, EventCtx, Widget};
 
 use crate::cmd;
 use crate::data::config::SortCriteria;
-use crate::data::{config::SortOrder, AppState};
+use crate::data::{AppState, config::SortOrder};
 
 pub struct SortController;
 

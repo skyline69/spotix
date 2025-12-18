@@ -1,7 +1,6 @@
 use druid::{
-    commands,
-    widget::{prelude::*, Controller, TextBox},
-    HotKey, KbKey, SysMods,
+    HotKey, KbKey, SysMods, commands,
+    widget::{Controller, TextBox, prelude::*},
 };
 
 use crate::cmd;

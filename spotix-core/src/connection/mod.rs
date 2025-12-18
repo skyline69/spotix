@@ -8,7 +8,7 @@ use std::{
     net::{TcpStream, ToSocketAddrs},
 };
 
-use byteorder::{ReadBytesExt, BE};
+use byteorder::{BE, ReadBytesExt};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha1::Sha1;
@@ -21,7 +21,7 @@ use crate::{
         shannon_codec::{ShannonDecoder, ShannonEncoder, ShannonMsg},
     },
     error::Error,
-    util::{default_ureq_agent_builder, NET_CONNECT_TIMEOUT, NET_IO_TIMEOUT},
+    util::{NET_CONNECT_TIMEOUT, NET_IO_TIMEOUT, default_ureq_agent_builder},
 };
 
 use librespot_protocol::authentication::AuthenticationType;
@@ -404,7 +404,7 @@ fn compute_keys(
 
 fn client_response_encrypted(credentials: Credentials) -> ShannonMsg {
     use librespot_protocol::authentication::{
-        ClientResponseEncrypted, LoginCredentials, SystemInfo, Os, CpuFamily
+        ClientResponseEncrypted, CpuFamily, LoginCredentials, Os, SystemInfo,
     };
 
     let response = ClientResponseEncrypted {

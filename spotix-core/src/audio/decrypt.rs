@@ -1,8 +1,8 @@
 use std::{convert::TryInto, io};
 
 use aes::{
-    cipher::{generic_array::GenericArray, KeyIvInit, StreamCipher, StreamCipherSeek},
     Aes128,
+    cipher::{KeyIvInit, StreamCipher, StreamCipherSeek, generic_array::GenericArray},
 };
 use ctr::Ctr128BE;
 

@@ -1,4 +1,4 @@
-use druid::{commands, platform_menus, Env, LocalizedString, Menu, MenuItem, SysMods, WindowId};
+use druid::{Env, LocalizedString, Menu, MenuItem, SysMods, WindowId, commands, platform_menus};
 
 use crate::{
     cmd,

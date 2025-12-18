@@ -1,7 +1,7 @@
 use druid::{
-    kurbo::{Line, Shape},
-    widget::{prelude::*, Axis, BackgroundBrush, Painter},
     Color, Data, KeyOrValue,
+    kurbo::{Line, Shape},
+    widget::{Axis, BackgroundBrush, Painter, prelude::*},
 };
 
 pub struct FadeOut<W> {

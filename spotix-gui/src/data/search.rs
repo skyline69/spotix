@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use druid::{im::Vector, Data, Lens};
+use druid::{Data, Lens, im::Vector};
 
 use crate::data::{Album, Artist, Playlist, Promise, Show, Track};
 

@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use druid::{im::Vector, Data, Lens};
+use druid::{Data, Lens, im::Vector};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::data::utils::sanitize_html_string;
-use crate::data::{user::PublicUser, Image, Promise, Track, TrackId};
+use crate::data::{Image, Promise, Track, TrackId, user::PublicUser};
 
 #[derive(Clone, Debug, Data, Lens)]
 pub struct PlaylistDetail {

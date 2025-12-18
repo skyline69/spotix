@@ -14,8 +14,8 @@ mod utils;
 use std::{sync::Arc, time::Duration};
 
 use druid::{
-    widget::{ControllerHost, Padding},
     Data, Env, EventCtx, Insets, Menu, MouseButton, MouseEvent, Selector, UpdateCtx, Widget,
+    widget::{ControllerHost, Padding},
 };
 
 pub use checkbox::Checkbox;

@@ -6,8 +6,8 @@ fn main() {
 #[cfg(windows)]
 fn add_windows_icon() {
     use image::{
-        codecs::ico::{IcoEncoder, IcoFrame},
         ColorType,
+        codecs::ico::{IcoEncoder, IcoFrame},
     };
 
     let ico_path = "assets/logo.ico";

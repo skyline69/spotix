@@ -10,16 +10,16 @@ use crate::{
         AppState, AudioQuality, Authentication, Config, Preferences, PreferencesTab, Promise,
         SliderScrollScale, Theme,
     },
-    widget::{icons, Async, Border, Checkbox, MyWidgetExt},
+    widget::{Async, Border, Checkbox, MyWidgetExt, icons},
 };
 use druid::{
+    Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx, Selector,
+    Widget, WidgetExt,
     text::ParseFormatter,
     widget::{
         Button, Controller, CrossAxisAlignment, Flex, Label, LineBreaking, MainAxisAlignment,
         RadioGroup, SizedBox, Slider, TextBox, ViewSwitcher,
     },
-    Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx, Selector,
-    Widget, WidgetExt,
 };
 use log::warn;
 use serde::Deserialize;
@@ -191,10 +191,7 @@ fn general_tab_widget() -> impl Widget<AppState> {
     col = col
         .with_child(Label::new("Theme").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(2.0))
-        .with_child(
-            RadioGroup::column(theme_options())
-                .lens(AppState::config.then(Config::theme)),
-        );
+        .with_child(RadioGroup::column(theme_options()).lens(AppState::config.then(Config::theme)));
 
     col = col.with_spacer(theme::grid(1.5));
 
@@ -311,7 +308,9 @@ fn theme_options() -> Vec<(String, Theme)> {
                     };
 
                     let name = match theme_label_from_toml(&contents).or_else(|| {
-                        path.file_stem().and_then(|stem| stem.to_str()).map(|s| s.to_string())
+                        path.file_stem()
+                            .and_then(|stem| stem.to_str())
+                            .map(|s| s.to_string())
                     }) {
                         Some(name) => name,
                         None => {
@@ -902,11 +901,15 @@ fn about_tab_widget() -> impl Widget<AppState> {
     // Build Info
     let commit_hash = Flex::row()
         .with_child(Label::new("Commit Hash:   "))
-        .with_child(Label::new(spotix_core::GIT_VERSION).with_text_color(theme::DISABLED_TEXT_COLOR));
+        .with_child(
+            Label::new(spotix_core::GIT_VERSION).with_text_color(theme::DISABLED_TEXT_COLOR),
+        );
 
     let build_time = Flex::row()
         .with_child(Label::new("Build time:   "))
-        .with_child(Label::new(spotix_core::BUILD_TIME).with_text_color(theme::DISABLED_TEXT_COLOR));
+        .with_child(
+            Label::new(spotix_core::BUILD_TIME).with_text_color(theme::DISABLED_TEXT_COLOR),
+        );
 
     let remote_url = Flex::row().with_child(Label::new("Source:   ")).with_child(
         Label::new(spotix_core::REMOTE_URL)

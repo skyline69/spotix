@@ -1,9 +1,9 @@
 // Ported from librespot
 
 use crate::error::Error;
+use crate::session::SessionService;
 use crate::session::client_token::ClientTokenProvider;
 use crate::session::token::Token;
-use crate::session::SessionService;
 use crate::system_info::{CLIENT_ID, DEVICE_ID};
 use crate::util::{default_ureq_agent_builder, solve_hash_cash};
 use librespot_protocol::login5::login_response::Response;
@@ -12,7 +12,7 @@ use librespot_protocol::{
     credentials::StoredCredential,
     hashcash::HashcashSolution,
     login5::{
-        login_request::Login_method, ChallengeSolution, LoginError, LoginRequest, LoginResponse,
+        ChallengeSolution, LoginError, LoginRequest, LoginResponse, login_request::Login_method,
     },
 };
 use parking_lot::Mutex;

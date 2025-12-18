@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use druid::{im::Vector, Data, Lens};
+use druid::{Data, Lens, im::Vector};
 use serde::{Deserialize, Serialize};
 
 use crate::data::{Album, Cached, Image, Promise, Track};

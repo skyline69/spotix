@@ -1,4 +1,4 @@
-use druid::{widget::Controller, Data, Env, UpdateCtx, Widget};
+use druid::{Data, Env, UpdateCtx, Widget, widget::Controller};
 
 pub struct OnUpdate<F> {
     handler: F,

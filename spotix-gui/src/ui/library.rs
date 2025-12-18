@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use druid::{
-    widget::{Flex, List},
     LensExt, Selector, Widget, WidgetExt,
+    widget::{Flex, List},
 };
 
 use crate::{

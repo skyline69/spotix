@@ -8,7 +8,7 @@ use spotix_core::{
     connection::Credentials,
     error::Error,
     item_id::{ItemId, ItemIdType},
-    player::{item::PlaybackItem, PlaybackConfig, Player, PlayerCommand, PlayerEvent},
+    player::{PlaybackConfig, Player, PlayerCommand, PlayerEvent, item::PlaybackItem},
     session::{SessionConfig, SessionService},
 };
 use std::{env, io, io::BufRead, path::PathBuf, thread};

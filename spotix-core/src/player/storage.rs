@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use parking_lot::{Condvar, Mutex};
 use rangemap::RangeSet;
 use tempfile::NamedTempFile;

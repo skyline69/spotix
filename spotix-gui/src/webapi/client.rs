@@ -9,32 +9,32 @@ use std::{
 };
 
 use druid::{
+    Data, ImageBuf,
     im::Vector,
     image::{self, ImageFormat},
-    Data, ImageBuf,
 };
 
 use itertools::Itertools;
 use log::info;
 use parking_lot::Mutex;
+use serde::{Deserialize, de::DeserializeOwned};
+use serde_json::json;
 use spotix_core::{
-    session::{login5::Login5, SessionService},
+    session::{SessionService, login5::Login5},
     system_info::{OS, SPOTIFY_SEMANTIC_VERSION},
 };
-use serde::{de::DeserializeOwned, Deserialize};
-use serde_json::json;
 use std::sync::OnceLock;
 use ureq::{
-    http::{Response, StatusCode},
     Agent, Body,
+    http::{Response, StatusCode},
 };
 
 use crate::{
     data::{
-        self, utils::sanitize_html_string, Album, AlbumType, Artist, ArtistAlbums, ArtistInfo,
-        ArtistLink, ArtistStats, AudioAnalysis, Cached, Episode, EpisodeId, EpisodeLink, Image,
-        MixedView, Nav, Page, Playlist, PublicUser, Range, Recommendations, RecommendationsRequest,
-        SearchResults, SearchTopic, Show, SpotifyUrl, Track, TrackLines, UserProfile,
+        self, Album, AlbumType, Artist, ArtistAlbums, ArtistInfo, ArtistLink, ArtistStats,
+        AudioAnalysis, Cached, Episode, EpisodeId, EpisodeLink, Image, MixedView, Nav, Page,
+        Playlist, PublicUser, Range, Recommendations, RecommendationsRequest, SearchResults,
+        SearchTopic, Show, SpotifyUrl, Track, TrackLines, UserProfile, utils::sanitize_html_string,
     },
     error::Error,
     ui::credits::TrackCredits,

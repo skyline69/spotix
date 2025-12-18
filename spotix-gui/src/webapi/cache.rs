@@ -7,8 +7,8 @@ use std::{
     sync::Arc,
 };
 
-use druid::image;
 use druid::ImageBuf;
+use druid::image;
 use lru::LruCache;
 use parking_lot::Mutex;
 use spotix_core::cache::mkdir_if_not_exists;

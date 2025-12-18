@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use druid::{
-    im::{vector, Vector},
     Data, Lens,
+    im::{Vector, vector},
 };
 use serde::{Deserialize, Serialize};
 
@@ -84,11 +84,7 @@ pub struct Toggled<T> {
 
 impl From<Toggled<u64>> for Option<u64> {
     fn from(t: Toggled<u64>) -> Self {
-        if t.enabled {
-            Some(t.value)
-        } else {
-            None
-        }
+        if t.enabled { Some(t.value) } else { None }
     }
 }
 

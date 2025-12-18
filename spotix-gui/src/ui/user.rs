@@ -1,13 +1,12 @@
 use druid::{
-    commands,
+    Data, LensExt, Selector, Widget, WidgetExt, commands,
     widget::{Either, Flex, Label},
-    Data, LensExt, Selector, Widget, WidgetExt,
 };
 
 use crate::{
     data::{AppState, Library, UserProfile},
     webapi::WebApi,
-    widget::{icons, icons::SvgIcon, Async, Empty, MyWidgetExt},
+    widget::{Async, Empty, MyWidgetExt, icons, icons::SvgIcon},
 };
 
 use super::theme;

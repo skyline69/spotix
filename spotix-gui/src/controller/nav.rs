@@ -3,8 +3,8 @@ use crate::{
     data::{AppState, Nav, SpotifyUrl},
     ui::{album, artist, library, lyrics, playlist, recommend, search, show},
 };
-use druid::widget::{prelude::*, Controller};
 use druid::Code;
+use druid::widget::{Controller, prelude::*};
 
 pub struct NavController;
 

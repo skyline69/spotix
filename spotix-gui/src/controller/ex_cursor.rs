@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use druid::{widget::Controller, Data, Env, Event, EventCtx, Widget};
+use druid::{Data, Env, Event, EventCtx, Widget, widget::Controller};
 use druid_shell::Cursor;
 
 pub struct ExCursor<T> {

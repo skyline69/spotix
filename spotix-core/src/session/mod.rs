@@ -1,29 +1,29 @@
 pub mod access_token;
 pub mod audio_key;
-pub mod mercury;
-pub mod login5;
 pub mod client_token;
+pub mod login5;
+pub mod mercury;
 pub mod token;
 
 use std::{
     io,
     net::{Shutdown, TcpStream},
     sync::{
-        atomic::{AtomicBool, Ordering},
         Arc,
+        atomic::{AtomicBool, Ordering},
     },
     thread::{self, JoinHandle},
 };
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 
 use crate::{
     audio::decrypt::AudioKey,
     connection::{
-        shannon_codec::{ShannonDecoder, ShannonEncoder, ShannonMsg},
         Credentials, Transport,
+        shannon_codec::{ShannonDecoder, ShannonEncoder, ShannonMsg},
     },
     error::Error,
     item_id::{FileId, ItemId},

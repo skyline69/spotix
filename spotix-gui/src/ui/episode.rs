@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use druid::{
-    widget::{CrossAxisAlignment, Flex, Label, LineBreaking},
     LensExt, LocalizedString, Menu, MenuItem, Size, Widget, WidgetExt,
+    widget::{CrossAxisAlignment, Flex, Label, LineBreaking},
 };
 
 use crate::{
     cmd,
     data::{AppState, Episode, Library, Nav},
-    widget::{fill_between::FillBetween, FadeOut, MyWidgetExt, RemoteImage},
+    widget::{FadeOut, MyWidgetExt, RemoteImage, fill_between::FillBetween},
 };
 
 use super::{

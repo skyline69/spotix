@@ -3,7 +3,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
 };
 
-use byteorder::{ReadBytesExt, LE};
+use byteorder::{LE, ReadBytesExt};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum NormalizationLevel {

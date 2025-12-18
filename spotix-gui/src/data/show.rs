@@ -1,9 +1,9 @@
 use std::{convert::TryFrom, sync::Arc, time::Duration};
 
-use druid::{im::Vector, Data, Lens};
-use spotix_core::item_id::{ItemId, ItemIdType};
+use druid::{Data, Lens, im::Vector};
 use serde::{Deserialize, Serialize};
-use time::{macros::format_description, Date};
+use spotix_core::item_id::{ItemId, ItemIdType};
+use time::{Date, macros::format_description};
 
 use crate::data::{Image, Promise};
 

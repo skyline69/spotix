@@ -1,16 +1,16 @@
 use directories::UserDirs;
 use druid::{
-    commands, AppDelegate, Application, Command, DelegateCtx, Env, Event, Handled, Target,
-    WindowDesc, WindowId,
+    AppDelegate, Application, Command, DelegateCtx, Env, Event, Handled, Target, WindowDesc,
+    WindowId, commands,
 };
 use std::fs;
 use threadpool::ThreadPool;
 
+use crate::ui::DOWNLOAD_ARTWORK;
 use crate::ui::playlist::{
     RENAME_PLAYLIST, RENAME_PLAYLIST_CONFIRM, UNFOLLOW_PLAYLIST, UNFOLLOW_PLAYLIST_CONFIRM,
 };
 use crate::ui::theme;
-use crate::ui::DOWNLOAD_ARTWORK;
 use crate::{
     cmd,
     data::{AppState, Config},

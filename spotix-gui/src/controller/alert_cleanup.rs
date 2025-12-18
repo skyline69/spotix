@@ -1,5 +1,5 @@
 use crate::data::AppState;
-use druid::{widget::Controller, Env, Event, EventCtx, Widget};
+use druid::{Env, Event, EventCtx, Widget, widget::Controller};
 use std::time::Duration;
 
 pub struct AlertCleanupController;

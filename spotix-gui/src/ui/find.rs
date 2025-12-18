@@ -1,6 +1,6 @@
 use druid::{
-    widget::{prelude::*, Controller, Either, Flex, Label, TextBox},
     KbKey, Selector, WidgetExt,
+    widget::{Controller, Either, Flex, Label, TextBox, prelude::*},
 };
 
 use crate::{

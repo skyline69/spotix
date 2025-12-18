@@ -1,5 +1,5 @@
 use crate::ui::theme;
-use druid::{kurbo::BezPath, widget::prelude::*, Affine, Color, KeyOrValue, Size};
+use druid::{Affine, Color, KeyOrValue, Size, kurbo::BezPath, widget::prelude::*};
 
 #[allow(dead_code)]
 pub static LOGO: SvgIcon = SvgIcon {
@@ -40,9 +40,9 @@ pub static DOWN: SvgIcon = SvgIcon {
 };
 
 pub static UP: SvgIcon = SvgIcon {
-svg_path: "m 13.707083,13.707109 c -0.390524,0.39049 -1.023687,0.39049 -1.414217,0 L 4.9999761,6.4142094 -2.2929238,13.707109 c -0.3905,0.39049 -1.0237,0.39049 -1.4142,0 -0.3905,-0.39053 -0.3905,-1.02369 0,-1.41422 L 4.2928661,4.2928924 c 0.39053,-0.390525 1.02369,-0.390525 1.41422,0 l 7.9999969,7.9999966 c 0.390524,0.39053 0.390524,1.02369 0,1.41422 z",
-svg_size: Size::new(10.0, 18.0),
-op: PaintOp::Fill,
+    svg_path: "m 13.707083,13.707109 c -0.390524,0.39049 -1.023687,0.39049 -1.414217,0 L 4.9999761,6.4142094 -2.2929238,13.707109 c -0.3905,0.39049 -1.0237,0.39049 -1.4142,0 -0.3905,-0.39053 -0.3905,-1.02369 0,-1.41422 L 4.2928661,4.2928924 c 0.39053,-0.390525 1.02369,-0.390525 1.41422,0 l 7.9999969,7.9999966 c 0.390524,0.39053 0.390524,1.02369 0,1.41422 z",
+    svg_size: Size::new(10.0, 18.0),
+    op: PaintOp::Fill,
 };
 
 // SF Pro Regular - play.fill

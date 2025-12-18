@@ -3,7 +3,7 @@ use std::{
     io::{Cursor, Read},
 };
 
-use byteorder::{ReadBytesExt, BE};
+use byteorder::{BE, ReadBytesExt};
 use crossbeam_channel::Sender;
 
 use crate::{connection::shannon_codec::ShannonMsg, util::Sequence};
@@ -118,8 +118,8 @@ pub struct MercuryResponse {
 impl MercuryResponse {
     fn decode_from_parts(mut parts: Vec<Vec<u8>>) -> Self {
         let header_part = parts.remove(0);
-        let header = Header::parse_from_bytes(&header_part)
-            .expect("Failed to deserialize message header");
+        let header =
+            Header::parse_from_bytes(&header_part).expect("Failed to deserialize message header");
 
         Self {
             uri: header.uri.unwrap(),

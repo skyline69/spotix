@@ -20,15 +20,15 @@ use std::{
     fmt::Display,
     mem,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use druid::{
-    im::{HashSet, Vector},
     Data, Lens,
+    im::{HashSet, Vector},
 };
 use spotix_core::{item_id::ItemId, session::SessionService};
 
@@ -187,7 +187,9 @@ impl AppState {
 
     pub fn navigate_back(&mut self) {
         if let Some(mut nav) = self.history.pop_back() {
-            if let Nav::SearchResults(query) = &nav && SpotifyUrl::parse(query).is_some() {
+            if let Nav::SearchResults(query) = &nav
+                && SpotifyUrl::parse(query).is_some()
+            {
                 nav = self.history.pop_back().unwrap_or(Nav::Home);
             }
 

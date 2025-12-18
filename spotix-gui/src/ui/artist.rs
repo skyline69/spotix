@@ -1,9 +1,9 @@
 use druid::{
+    Data, Insets, LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint, Widget,
+    WidgetExt,
     im::Vector,
     kurbo::Circle,
     widget::{CrossAxisAlignment, Either, Flex, Label, LabelText, LineBreaking, List, Scroll},
-    Data, Insets, LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint, Widget,
-    WidgetExt,
 };
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
         AppState, Artist, ArtistAlbums, ArtistDetail, ArtistInfo, ArtistLink, ArtistTracks, Cached,
         Ctx, Nav, WithCtx,
     },
-    ui::utils::{stat_row, InfoLayout},
+    ui::utils::{InfoLayout, stat_row},
     webapi::WebApi,
     widget::{Async, Empty, MyWidgetExt, RemoteImage},
 };

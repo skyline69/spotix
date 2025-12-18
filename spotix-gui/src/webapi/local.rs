@@ -13,7 +13,7 @@ use druid::im::Vector;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::data::{config::Config, AlbumLink, ArtistLink, Image, Track, TrackId};
+use crate::data::{AlbumLink, ArtistLink, Image, Track, TrackId, config::Config};
 use spotix_core::item_id::ItemId;
 
 /*

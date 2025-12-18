@@ -5,21 +5,21 @@ use std::{
 
 use crossbeam_channel::Sender;
 use druid::{
-    im::Vector,
-    widget::{prelude::*, Controller},
     Code, ExtEventSink, InternalLifeCycle, KbKey, WindowHandle,
+    im::Vector,
+    widget::{Controller, prelude::*},
+};
+use rustfm_scrobble::Scrobbler;
+use souvlaki::{
+    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig,
 };
 use spotix_core::{
     audio::{normalize::NormalizationLevel, output::DefaultAudioOutput},
     cache::Cache,
     cdn::Cdn,
     lastfm::LastFmClient,
-    player::{item::PlaybackItem, PlaybackConfig, Player, PlayerCommand, PlayerEvent},
+    player::{PlaybackConfig, Player, PlayerCommand, PlayerEvent, item::PlaybackItem},
     session::SessionService,
-};
-use rustfm_scrobble::Scrobbler;
-use souvlaki::{
-    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig,
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 

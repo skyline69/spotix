@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use druid::{
-    widget::{CrossAxisAlignment, Flex, Label, LineBreaking, List, ViewSwitcher},
     LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint, Widget, WidgetExt,
+    widget::{CrossAxisAlignment, Flex, Label, LineBreaking, List, ViewSwitcher},
 };
 
 use crate::{
@@ -13,7 +13,7 @@ use crate::{
     },
     ui::playable::PlayableIter,
     webapi::WebApi,
-    widget::{icons, Async, MyWidgetExt, RemoteImage},
+    widget::{Async, MyWidgetExt, RemoteImage, icons},
 };
 
 use super::{artist, library, playable, theme, track, utils};

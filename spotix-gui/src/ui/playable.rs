@@ -1,12 +1,12 @@
 use std::{mem, sync::Arc};
 
 use druid::{
+    Data, Env, Event, EventCtx, Lens, RenderContext, Selector, Widget, WidgetExt,
     im::Vector,
     kurbo::Line,
     lens::Map,
     piet::StrokeStyle,
     widget::{Controller, ControllerHost, List, ListIter, Painter, ViewSwitcher},
-    Data, Env, Event, EventCtx, Lens, RenderContext, Selector, Widget, WidgetExt,
 };
 
 use crate::{

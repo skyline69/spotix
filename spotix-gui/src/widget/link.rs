@@ -1,4 +1,4 @@
-use druid::{widget::prelude::*, Color, Data, KeyOrValue, Point, RoundedRectRadii, WidgetPod};
+use druid::{Color, Data, KeyOrValue, Point, RoundedRectRadii, WidgetPod, widget::prelude::*};
 
 use crate::ui::theme;
 

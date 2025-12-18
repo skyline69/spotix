@@ -1,9 +1,9 @@
 use druid::{
+    Affine,
     kurbo::{BezPath, Size},
     piet::{LineCap, LineJoin, LinearGradient, RenderContext, StrokeStyle, UnitPoint},
     theme,
-    widget::{prelude::*, Label, LabelText},
-    Affine,
+    widget::{Label, LabelText, prelude::*},
 };
 
 pub struct Checkbox {

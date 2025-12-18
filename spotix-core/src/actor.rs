@@ -5,7 +5,7 @@ use std::{
 };
 
 use crossbeam_channel::{
-    bounded, unbounded, Receiver, RecvTimeoutError, SendError, Sender, TrySendError,
+    Receiver, RecvTimeoutError, SendError, Sender, TrySendError, bounded, unbounded,
 };
 
 pub enum Act<T: Actor> {

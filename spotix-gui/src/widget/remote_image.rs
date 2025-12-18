@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use druid::{
-    widget::{prelude::*, FillStrat, Image},
     Data, ImageBuf, Point, Selector, WidgetPod,
+    widget::{FillStrat, Image, prelude::*},
 };
 
 pub const REQUEST_DATA: Selector<Arc<str>> = Selector::new("remote-image.request-data");

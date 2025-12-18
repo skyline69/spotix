@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::oauth::listen_for_callback_parameter;
-use rustfm_scrobble::{responses::SessionResponse, Scrobble, Scrobbler, ScrobblerError};
+use rustfm_scrobble::{Scrobble, Scrobbler, ScrobblerError, responses::SessionResponse};
 use std::{net::SocketAddr, time::Duration};
 use url::Url;
 

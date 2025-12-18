@@ -3,7 +3,7 @@ use std::{
     io::{Cursor, Read},
 };
 
-use byteorder::{ReadBytesExt, BE};
+use byteorder::{BE, ReadBytesExt};
 use crossbeam_channel::Sender;
 
 use crate::{

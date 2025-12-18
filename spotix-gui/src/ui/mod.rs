@@ -1,5 +1,5 @@
-use crate::data::config::SortCriteria;
 use crate::data::Track;
+use crate::data::config::SortCriteria;
 use crate::error::Error;
 use crate::{
     cmd,
@@ -7,25 +7,25 @@ use crate::{
         AfterDelay, AlertCleanupController, NavController, SessionController, SortController,
     },
     data::{
-        config::SortOrder, Alert, AlertStyle, AppState, Config, Nav, Playable, Playback, Route,
-        ALERT_DURATION,
+        ALERT_DURATION, Alert, AlertStyle, AppState, Config, Nav, Playable, Playback, Route,
+        config::SortOrder,
     },
     webapi::WebApi,
     widget::{
-        icons, icons::SvgIcon, Border, Empty, MyWidgetExt, Overlay, RemoteImage, ThemeScope,
-        ViewDispatcher,
+        Border, Empty, MyWidgetExt, Overlay, RemoteImage, ThemeScope, ViewDispatcher, icons,
+        icons::SvgIcon,
     },
 };
 use credits::TrackCredits;
-use druid::widget::Controller;
 use druid::KbKey;
+use druid::widget::Controller;
 use druid::{
+    Color, Env, Insets, Key, LensExt, Menu, MenuItem, Selector, Widget, WidgetExt, WindowDesc,
     im::Vector,
     widget::{
         CrossAxisAlignment, Either, Flex, Label, LineBreaking, List, Scroll, Slider, Split,
         ViewSwitcher,
     },
-    Color, Env, Insets, Key, LensExt, Menu, MenuItem, Selector, Widget, WidgetExt, WindowDesc,
 };
 use druid_shell::Cursor;
 use std::sync::Arc;

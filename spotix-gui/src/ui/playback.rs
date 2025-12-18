@@ -1,11 +1,11 @@
 use std::time::Duration;
 
 use druid::{
+    BoxConstraints, Cursor, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx,
+    MouseButton, PaintCtx, Point, Rect, RenderContext, Size, UpdateCtx, Widget, WidgetExt,
+    WidgetPod,
     kurbo::{Affine, BezPath},
     widget::{CrossAxisAlignment, Either, Flex, Label, LineBreaking, Spinner, ViewSwitcher},
-    BoxConstraints, Cursor, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle,
-    LifeCycleCtx, MouseButton, PaintCtx, Point, Rect, RenderContext, Size, UpdateCtx, Widget,
-    WidgetExt, WidgetPod,
 };
 use itertools::Itertools;
 
@@ -17,8 +17,8 @@ use crate::{
         QueueBehavior,
     },
     widget::{
-        icons::{self, SvgIcon},
         Empty, Maybe, MyWidgetExt, RemoteImage,
+        icons::{self, SvgIcon},
     },
 };
 

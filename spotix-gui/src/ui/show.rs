@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use druid::{
-    widget::{CrossAxisAlignment, Flex, Label, LineBreaking, Scroll},
     LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint, Widget, WidgetExt,
+    widget::{CrossAxisAlignment, Flex, Label, LineBreaking, Scroll},
 };
 
 use crate::{
     cmd,
     data::{AppState, Ctx, Library, Nav, Show, ShowDetail, ShowEpisodes, ShowLink, WithCtx},
-    ui::utils::{stat_row, InfoLayout},
+    ui::utils::{InfoLayout, stat_row},
     webapi::WebApi,
     widget::{Async, MyWidgetExt, RemoteImage},
 };

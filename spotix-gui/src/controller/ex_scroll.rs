@@ -1,5 +1,5 @@
 use crate::data::SliderScrollScale;
-use druid::{widget::Controller, Data, Env, Event, EventCtx, LifeCycle, LifeCycleCtx, Widget};
+use druid::{Data, Env, Event, EventCtx, LifeCycle, LifeCycleCtx, Widget, widget::Controller};
 
 pub struct ExScroll<T> {
     scale_picker: Box<dyn Fn(&mut T) -> &SliderScrollScale>,

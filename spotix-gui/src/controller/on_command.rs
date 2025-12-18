@@ -1,4 +1,4 @@
-use druid::{widget::Controller, Data, Env, Event, EventCtx, Selector, Widget};
+use druid::{Data, Env, Event, EventCtx, Selector, Widget, widget::Controller};
 
 pub struct OnCommand<U, F> {
     selector: Selector<U>,

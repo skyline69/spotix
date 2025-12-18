@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use druid::{im::Vector, Data, Lens};
+use druid::{Data, Lens, im::Vector};
 use serde::{Deserialize, Serialize};
-use time::{formatting::Formattable, macros::format_description, Date};
+use time::{Date, formatting::Formattable, macros::format_description};
 
 use crate::data::{ArtistLink, Cached, Image, Promise, Track};
 

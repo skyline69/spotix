@@ -1,9 +1,9 @@
 use std::fmt;
 
 use druid::{
+    Data, Lens, LensExt,
     lens::{Field, Map},
     widget::ListIter,
-    Data, Lens, LensExt,
 };
 
 use crate::data::Promise;

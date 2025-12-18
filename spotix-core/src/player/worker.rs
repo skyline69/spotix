@@ -1,14 +1,14 @@
 use std::{
     ops::Range,
     sync::{
-        atomic::{AtomicU64, Ordering},
         Arc,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use crossbeam_channel::Sender;
-use rb::{Consumer, Producer, RbConsumer, RbProducer, SpscRb, RB};
+use rb::{Consumer, Producer, RB, RbConsumer, RbProducer, SpscRb};
 use symphonia::core::{
     audio::{SampleBuffer, SignalSpec},
     units::TimeBase,
@@ -26,8 +26,8 @@ use crate::{
 };
 
 use super::{
-    file::{MediaFile, MediaPath},
     LoadedPlaybackItem, PlayerEvent,
+    file::{MediaFile, MediaPath},
 };
 
 pub struct PlaybackManager {

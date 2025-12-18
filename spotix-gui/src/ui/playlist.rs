@@ -1,19 +1,19 @@
 use std::{cell::RefCell, cmp::Ordering, rc::Rc, sync::Arc};
 
 use druid::{
-    im::Vector,
-    widget::{Button, Either, Flex, Label, LensWrap, LineBreaking, List, TextBox},
     Insets, Lens, LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint, Widget,
     WidgetExt, WindowDesc,
+    im::Vector,
+    widget::{Button, Either, Flex, Label, LensWrap, LineBreaking, List, TextBox},
 };
 use itertools::Itertools;
 
 use crate::{
     cmd,
     data::{
-        config::{SortCriteria, SortOrder},
         AppState, Ctx, Library, Nav, Playlist, PlaylistAddTrack, PlaylistDetail, PlaylistLink,
         PlaylistRemoveTrack, PlaylistTracks, Track, WithCtx,
+        config::{SortCriteria, SortOrder},
     },
     error::Error,
     ui::menu,

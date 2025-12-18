@@ -1,7 +1,8 @@
 use crate::error::Error;
 use oauth2::{
-    basic::BasicClient, reqwest, AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet,
-    EndpointSet, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet, EndpointSet,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse, TokenUrl,
+    basic::BasicClient, reqwest,
 };
 use std::{
     io::{BufRead, BufReader, Write},
@@ -17,9 +18,7 @@ pub fn listen_for_callback_parameter(
     timeout: Duration,
     parameter_name: &'static str,
 ) -> Result<String, Error> {
-    log::info!(
-        "starting callback listener for '{parameter_name}' on {socket_address:?}",
-    );
+    log::info!("starting callback listener for '{parameter_name}' on {socket_address:?}",);
 
     // Create a simpler, linear flow
     // 1. Bind the listener

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use druid::{
+    Data, Env, Insets, Lens, LensExt, RenderContext, Selector, Widget, WidgetExt,
     widget::{
         CrossAxisAlignment, Either, Flex, Label, LabelText, List, MainAxisAlignment, Scroll,
         TextBox,
     },
-    Data, Env, Insets, Lens, LensExt, RenderContext, Selector, Widget, WidgetExt,
 };
 
 use crate::{

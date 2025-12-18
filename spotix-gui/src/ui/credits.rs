@@ -8,8 +8,8 @@ use crate::{
     ui::utils,
 };
 use druid::{
-    widget::{Controller, CrossAxisAlignment, Either, Flex, Label, List, Maybe, Painter, Scroll},
     Cursor, Data, Env, Event, EventCtx, Lens, RenderContext, Target, UpdateCtx, Widget, WidgetExt,
+    widget::{Controller, CrossAxisAlignment, Either, Flex, Label, List, Maybe, Painter, Scroll},
 };
 use serde::Deserialize;
 

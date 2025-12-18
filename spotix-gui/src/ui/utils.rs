@@ -1,9 +1,9 @@
 use std::{f64::consts::PI, time::Duration};
 
 use druid::{
-    kurbo::Circle,
-    widget::{prelude::*, CrossAxisAlignment, Flex, Label, SizedBox},
     Data, Point, Vec2, Widget, WidgetExt, WidgetPod,
+    kurbo::Circle,
+    widget::{CrossAxisAlignment, Flex, Label, SizedBox, prelude::*},
 };
 use time_humanize::HumanTime;
 

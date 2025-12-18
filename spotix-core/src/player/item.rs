@@ -15,8 +15,8 @@ use crate::{
 use librespot_protocol::metadata::{Episode, Track};
 
 use super::{
-    file::{AudioFormat, MediaFile, MediaPath},
     PlaybackConfig,
+    file::{AudioFormat, MediaFile, MediaPath},
 };
 
 pub struct LoadedPlaybackItem {

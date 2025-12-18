@@ -1,9 +1,9 @@
 use std::{convert::TryFrom, sync::Arc, time::Duration};
 
-use druid::{im::Vector, lens::Map, Data, Lens};
+use druid::{Data, Lens, im::Vector, lens::Map};
 use itertools::Itertools;
-use spotix_core::item_id::{ItemId, ItemIdType};
 use serde::{Deserialize, Serialize};
+use spotix_core::item_id::{ItemId, ItemIdType};
 
 use crate::data::{AlbumLink, ArtistLink};
 

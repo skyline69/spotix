@@ -1,8 +1,8 @@
 use std::{fmt, sync::Arc, time::Duration};
 
-use druid::{im::Vector, Data, Lens};
-use spotix_core::item_id::ItemId;
+use druid::{Data, Lens, im::Vector};
 use serde::{Deserialize, Serialize};
+use spotix_core::item_id::ItemId;
 
 use super::{
     AlbumLink, ArtistLink, Episode, Library, Nav, PlaylistLink, RecommendationsRequest, ShowLink,

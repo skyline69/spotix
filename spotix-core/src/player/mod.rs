@@ -6,7 +6,7 @@ mod worker;
 
 use std::{mem, thread, thread::JoinHandle, time::Duration};
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::{
     audio::output::{AudioOutput, AudioSink, DefaultAudioOutput, DefaultAudioSink},

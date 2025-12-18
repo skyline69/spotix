@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use druid::{
-    widget::Controller, Data, Env, Event, EventCtx, LifeCycle, LifeCycleCtx, TimerToken, Widget,
+    Data, Env, Event, EventCtx, LifeCycle, LifeCycleCtx, TimerToken, Widget, widget::Controller,
 };
 
 type DelayFunc<T> = Box<dyn FnOnce(&mut EventCtx, &mut T, &Env)>;

@@ -1,4 +1,4 @@
-use druid::{widget::prelude::*, Data, Point, WidgetExt, WidgetPod};
+use druid::{Data, Point, WidgetExt, WidgetPod, widget::prelude::*};
 
 use crate::data::{Promise, PromiseState};
 

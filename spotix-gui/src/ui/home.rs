@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use druid::im::Vector;
 use druid::widget::{Either, Flex, Label, Scroll};
-use druid::{widget::List, LensExt, Selector, Widget, WidgetExt};
+use druid::{LensExt, Selector, Widget, WidgetExt, widget::List};
 
 use crate::data::{Artist, Ctx, HomeDetail, MixedView, Show, Shows, Track, WithCtx};
 use crate::ui::library::{LOAD_SHOWS, SAVE_SHOW, UNSAVE_SHOW};

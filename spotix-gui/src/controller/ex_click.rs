@@ -1,6 +1,6 @@
 use druid::{
-    widget::Controller, Data, Env, Event, EventCtx, LifeCycle, LifeCycleCtx, MouseButton,
-    MouseEvent, Widget,
+    Data, Env, Event, EventCtx, LifeCycle, LifeCycleCtx, MouseButton, MouseEvent, Widget,
+    widget::Controller,
 };
 
 pub struct ExClick<T> {
