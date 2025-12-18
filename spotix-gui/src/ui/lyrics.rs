@@ -107,9 +107,10 @@ impl<W: Widget<AppState>> Controller<AppState, W> for LyricsProgressController {
         env: &druid::Env,
     ) {
         if let druid::Event::Command(cmd) = event
-            && cmd.is(cmd::PLAYBACK_PROGRESS) {
-                ctx.request_paint();
-            }
+            && cmd.is(cmd::PLAYBACK_PROGRESS)
+        {
+            ctx.request_paint();
+        }
         child.event(ctx, event, data, env);
     }
 }
@@ -130,9 +131,10 @@ impl Widget<WithCtx<TrackLines>> for LyricLine {
         match event {
             Event::MouseDown(mouse) if mouse.button.is_left() => {
                 if let Ok(ms) = data.data.start_time_ms.parse::<u64>()
-                    && ms != 0 {
-                        ctx.submit_command(cmd::SKIP_TO_POSITION.with(ms));
-                    }
+                    && ms != 0
+                {
+                    ctx.submit_command(cmd::SKIP_TO_POSITION.with(ms));
+                }
                 ctx.set_handled();
             }
             _ => {}

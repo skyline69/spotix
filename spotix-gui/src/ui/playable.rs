@@ -12,7 +12,7 @@ use druid::{
 use crate::{
     cmd,
     data::{
-        ArtistTracks, CommonCtx, FindQuery, MatchFindQuery, Playable, PlaybackOrigin,
+        ArtistTracks, CommonCtx, FindQuery, MatchFindQuery, Nav, Playable, PlaybackOrigin,
         PlaybackPayload, PlaylistTracks, Recommendations, SavedTracks, SearchResults, ShowEpisodes,
         Track, WithCtx,
     },
@@ -259,7 +259,14 @@ where
 {
     fn for_each(&self, mut cb: impl FnMut(&PlayRow<Playable>, usize)) {
         let origin = Arc::new(self.data.origin());
-        self.data.for_each(|item, position| {
+        let filter = filter_query(self.ctx.as_ref());
+        let mut position = 0;
+        self.data.for_each(|item, _| {
+            if let Some(query) = filter.as_deref()
+                && !playable_matches_query(&item, query)
+            {
+                return;
+            }
             cb(
                 &PlayRow {
                     is_playing: self.ctx.is_playing(&item),
@@ -269,13 +276,21 @@ where
                     position,
                 },
                 position,
-            )
+            );
+            position += 1;
         });
     }
 
     fn for_each_mut(&mut self, mut cb: impl FnMut(&mut PlayRow<Playable>, usize)) {
         let origin = Arc::new(self.data.origin());
-        self.data.for_each(|item, position| {
+        let filter = filter_query(self.ctx.as_ref());
+        let mut position = 0;
+        self.data.for_each(|item, _| {
+            if let Some(query) = filter.as_deref()
+                && !playable_matches_query(&item, query)
+            {
+                return;
+            }
             cb(
                 &mut PlayRow {
                     is_playing: self.ctx.is_playing(&item),
@@ -285,12 +300,24 @@ where
                     position,
                 },
                 position,
-            )
+            );
+            position += 1;
         });
     }
 
     fn data_len(&self) -> usize {
-        self.data.count()
+        let filter = filter_query(self.ctx.as_ref());
+        if let Some(query) = filter {
+            let mut count = 0;
+            self.data.for_each(|item, _| {
+                if playable_matches_query(&item, &query) {
+                    count += 1;
+                }
+            });
+            count
+        } else {
+            self.data.count()
+        }
     }
 }
 
@@ -312,8 +339,7 @@ where
         match event {
             Event::Notification(note) => {
                 if let Some(position) = note.get(cmd::PLAY) {
-                    let mut items = Vector::new();
-                    data.data.for_each(|item, _| items.push_back(item));
+                    let items = filtered_items(&data.ctx, &data.data);
                     let payload = PlaybackPayload {
                         items,
                         origin: data.data.origin(),
@@ -326,4 +352,52 @@ where
             _ => child.event(ctx, event, data, env),
         }
     }
+}
+
+fn filter_query(ctx: &CommonCtx) -> Option<String> {
+    let query = ctx.library_search.trim();
+    if query.is_empty() {
+        return None;
+    }
+    if matches!(ctx.nav, Nav::PlaylistDetail(_) | Nav::SavedTracks) {
+        Some(query.to_lowercase())
+    } else {
+        None
+    }
+}
+
+fn playable_matches_query(item: &Playable, query: &str) -> bool {
+    fn contains(haystack: &str, needle: &str) -> bool {
+        haystack.to_lowercase().contains(needle)
+    }
+
+    match item {
+        Playable::Track(track) => {
+            contains(&track.name, query)
+                || track
+                    .album
+                    .as_ref()
+                    .is_some_and(|a| contains(&a.name, query))
+                || track.artists.iter().any(|a| contains(&a.name, query))
+        }
+        Playable::Episode(episode) => {
+            contains(&episode.name, query)
+                || contains(&episode.description, query)
+                || contains(&episode.show.name, query)
+        }
+    }
+}
+
+fn filtered_items<T: PlayableIter>(ctx: &Arc<CommonCtx>, data: &T) -> Vector<Playable> {
+    let mut items = Vector::new();
+    let filter = filter_query(ctx.as_ref());
+    data.for_each(|item, _| {
+        if let Some(ref query) = filter
+            && !playable_matches_query(&item, query)
+        {
+            return;
+        }
+        items.push_back(item);
+    });
+    items
 }

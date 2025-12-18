@@ -31,6 +31,28 @@ pub const LOAD_MORE_TRACKS: Selector<(PlaylistLink, usize)> =
     Selector::new("app.playlist.load-more-tracks");
 const PAGE_SIZE: usize = 100;
 
+fn sort_playlist_tracks(tracks: &mut PlaylistTracks, criteria: SortCriteria, order: SortOrder) {
+    let mut items: Vec<(usize, Arc<Track>)> = tracks.tracks.iter().cloned().enumerate().collect();
+
+    let cmp_str = |a: &str, b: &str| a.to_lowercase().cmp(&b.to_lowercase());
+
+    items.sort_by(|(idx_a, a), (idx_b, b)| {
+        let mut ord = match criteria {
+            SortCriteria::Title => cmp_str(&a.name, &b.name),
+            SortCriteria::Artist => cmp_str(&a.artist_name(), &b.artist_name()),
+            SortCriteria::Album => cmp_str(&a.album_name(), &b.album_name()),
+            SortCriteria::Duration => a.duration.cmp(&b.duration),
+            SortCriteria::DateAdded => idx_a.cmp(idx_b),
+        };
+        if order == SortOrder::Descending {
+            ord = ord.reverse();
+        }
+        ord
+    });
+
+    tracks.tracks = items.into_iter().map(|(_, track)| track).collect();
+}
+
 #[derive(Clone, Data)]
 struct PlaylistTracksPage {
     items: Vector<Arc<Track>>,
@@ -545,6 +567,11 @@ fn async_tracks_widget() -> impl Widget<AppState> {
         },
         |_, data, d| data.playlist_detail.tracks.defer(d.clone()),
         |_, data, (def, tracks)| {
+            let (ref _link, criteria, order, _) = def;
+            let mut tracks = tracks;
+            if let Ok(ref mut playlist_tracks) = tracks {
+                sort_playlist_tracks(playlist_tracks, criteria, order);
+            }
             data.playlist_detail.tracks.update((def, tracks));
         },
     )
@@ -573,6 +600,11 @@ fn async_tracks_widget() -> impl Widget<AppState> {
                         val.tracks.append(page.items);
                         val.total = page.total;
                         val.next_offset = (page.offset + page.limit).min(page.total);
+                        sort_playlist_tracks(
+                            val,
+                            data.config.sort_criteria,
+                            data.config.sort_order,
+                        );
                     }
                     Err(err) => log::error!("failed to load more tracks: {err}"),
                 }
@@ -598,13 +630,20 @@ fn tracks_widget() -> impl Widget<WithCtx<PlaylistTracks>> {
     let load_more = Flex::row()
         .with_child(
             ViewSwitcher::new(
-                |tracks: &PlaylistTracks, _| (tracks.loading_more, tracks.has_more()),
-                |state, _tracks: &PlaylistTracks, _| match state {
+                |tracks: &WithCtx<PlaylistTracks>, _| {
+                    let searching = !tracks.ctx.library_search.trim().is_empty();
+                    if searching {
+                        (false, false)
+                    } else {
+                        (tracks.data.loading_more, tracks.data.has_more())
+                    }
+                },
+                |state, _tracks: &WithCtx<PlaylistTracks>, _| match state {
                     (true, _) => Spinner::new().boxed(),
                     (false, true) => Button::new("Load more")
-                        .on_left_click(|ctx, _, tracks: &mut PlaylistTracks, _| {
-                            let link = tracks.link();
-                            let offset = tracks.next_offset;
+                        .on_left_click(|ctx, _, tracks: &mut WithCtx<PlaylistTracks>, _| {
+                            let link = tracks.data.link();
+                            let offset = tracks.data.next_offset;
                             ctx.submit_command(LOAD_MORE_TRACKS.with((link, offset)));
                         })
                         .boxed(),
@@ -615,9 +654,7 @@ fn tracks_widget() -> impl Widget<WithCtx<PlaylistTracks>> {
         )
         .align_left();
 
-    Flex::column()
-        .with_child(list)
-        .with_child(load_more.lens(Ctx::data()))
+    Flex::column().with_child(list).with_child(load_more)
 }
 
 fn playlist_menu_ctx(playlist: &WithCtx<Playlist>) -> Menu<AppState> {

@@ -107,6 +107,7 @@ impl AppState {
             library: Arc::clone(&library),
             show_track_cover: config.show_track_cover,
             nav: Nav::Home,
+            library_search: String::new(),
         });
         let playback = Playback {
             state: PlaybackState::Stopped,
@@ -185,6 +186,7 @@ impl AppState {
             self.history.push_back(previous);
             self.config.last_route.replace(nav.to_owned());
             Arc::make_mut(&mut self.common_ctx).nav = nav.to_owned();
+            Arc::make_mut(&mut self.common_ctx).library_search.clear();
         }
     }
 
@@ -203,6 +205,7 @@ impl AppState {
             self.nav = nav;
             self.config.last_route.replace(self.nav.to_owned());
             Arc::make_mut(&mut self.common_ctx).nav = self.nav.clone();
+            Arc::make_mut(&mut self.common_ctx).library_search.clear();
         }
     }
 
@@ -572,13 +575,14 @@ impl Shows {
     }
 }
 
-#[derive(Clone, Data)]
+#[derive(Clone, Data, Lens)]
 pub struct CommonCtx {
     pub now_playing: Option<Playable>,
     pub now_playing_progress: Duration,
     pub library: Arc<Library>,
     pub show_track_cover: bool,
     pub nav: Nav,
+    pub library_search: String,
 }
 
 impl CommonCtx {
@@ -588,6 +592,27 @@ impl CommonCtx {
 }
 
 pub type WithCtx<T> = Ctx<Arc<CommonCtx>, T>;
+
+pub struct CommonCtxSearch;
+
+impl Lens<AppState, String> for CommonCtxSearch {
+    fn with<V, F>(&self, data: &AppState, f: F) -> V
+    where
+        F: FnOnce(&String) -> V,
+    {
+        f(&data.common_ctx.library_search)
+    }
+
+    fn with_mut<V, F>(&self, data: &mut AppState, f: F) -> V
+    where
+        F: FnOnce(&mut String) -> V,
+    {
+        let mut value = data.common_ctx.library_search.clone();
+        let v = f(&mut value);
+        Arc::make_mut(&mut data.common_ctx).library_search = value;
+        v
+    }
+}
 
 #[derive(Clone, Data, Lens)]
 pub struct HomeDetail {

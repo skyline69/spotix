@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
 use druid::{
-    LensExt, Selector, Widget, WidgetExt,
+    Lens, LensExt, Selector, Widget, WidgetExt,
+    im::Vector,
     widget::{Flex, List},
 };
 
 use crate::{
     cmd,
     data::{
-        Album, AlbumLink, AppState, Ctx, Library, SavedAlbums, SavedTracks, Show, ShowLink, Track,
-        TrackId,
+        Album, AlbumLink, AppState, CommonCtx, Ctx, Library, Nav, SavedAlbums, SavedTracks, Show,
+        ShowLink, Track, TrackId,
     },
     ui::home::{shows_that_you_might_like, your_shows},
     webapi::WebApi,
@@ -108,7 +109,7 @@ pub fn saved_tracks_widget() -> impl Widget<AppState> {
 pub fn saved_albums_widget() -> impl Widget<AppState> {
     Async::new(
         utils::spinner_widget,
-        || List::new(|| album::album_widget(false)).lens(Ctx::map(SavedAlbums::albums)),
+        || List::new(|| album::album_widget(false)).lens(FilterSavedAlbums),
         || utils::retry_error_widget(LOAD_ALBUMS),
     )
     .lens(
@@ -170,4 +171,53 @@ pub fn saved_shows_widget() -> impl Widget<AppState> {
     Flex::column()
         .with_child(your_shows())
         .with_child(shows_that_you_might_like())
+}
+
+struct FilterSavedAlbums;
+
+impl Lens<Ctx<Arc<CommonCtx>, SavedAlbums>, Ctx<Arc<CommonCtx>, Vector<Arc<Album>>>>
+    for FilterSavedAlbums
+{
+    fn with<V, F>(&self, data: &Ctx<Arc<CommonCtx>, SavedAlbums>, f: F) -> V
+    where
+        F: FnOnce(&Ctx<Arc<CommonCtx>, Vector<Arc<Album>>>) -> V,
+    {
+        let query = data.ctx.library_search.trim().to_lowercase();
+        let nav = &data.ctx.nav;
+        let filtered = if query.is_empty() || !matches!(nav, Nav::SavedAlbums) {
+            data.data.albums.clone()
+        } else {
+            data.data
+                .albums
+                .iter()
+                .filter(|album| matches_album_query(album, &query))
+                .cloned()
+                .collect()
+        };
+        let mapped = Ctx::new(data.ctx.clone(), filtered);
+        f(&mapped)
+    }
+
+    fn with_mut<V, F>(&self, data: &mut Ctx<Arc<CommonCtx>, SavedAlbums>, f: F) -> V
+    where
+        F: FnOnce(&mut Ctx<Arc<CommonCtx>, Vector<Arc<Album>>>) -> V,
+    {
+        let ctx = data.ctx.clone();
+        let mut mapped = Ctx::new(ctx, data.data.albums.clone());
+        let v = f(&mut mapped);
+        data.ctx = mapped.ctx;
+        v
+    }
+}
+
+fn matches_album_query(album: &Arc<Album>, query: &str) -> bool {
+    fn contains(haystack: &str, needle: &str) -> bool {
+        haystack.to_lowercase().contains(needle)
+    }
+
+    contains(&album.name, query)
+        || album
+            .artists
+            .iter()
+            .any(|artist| contains(&artist.name, query))
 }

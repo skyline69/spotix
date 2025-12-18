@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
 use druid::{
-    LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint, Widget, WidgetExt,
+    Lens, LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint, Widget, WidgetExt,
+    im::Vector,
     widget::{CrossAxisAlignment, Flex, Label, LineBreaking, List, ViewSwitcher},
 };
 
 use crate::{
     cmd,
     data::{
-        Album, AlbumDetail, AlbumLink, AppState, ArtistLink, Cached, Ctx, Library, Nav, Playable,
-        PlaybackOrigin, WithCtx,
+        Album, AlbumDetail, AlbumLink, AppState, ArtistLink, Cached, CommonCtx, Ctx, Library, Nav,
+        Playable, PlaybackOrigin, Track, WithCtx,
     },
     ui::playable::PlayableIter,
     webapi::WebApi,
@@ -20,6 +21,8 @@ use super::{artist, library, playable, theme, track, utils};
 
 pub const LOAD_DETAIL: Selector<AlbumLink> = Selector::new("app.album.load-detail");
 pub const REFRESH_DETAIL: Selector<AlbumLink> = Selector::new("app.album.refresh-detail");
+
+struct FilterAlbumTracks;
 
 pub fn detail_widget() -> impl Widget<AppState> {
     Async::new(utils::spinner_widget, loaded_detail_widget, || {
@@ -113,7 +116,7 @@ fn loaded_detail_widget() -> impl Widget<WithCtx<Cached<Arc<Album>>>> {
         .with_spacer(theme::grid(1.0))
         .with_child(album_top)
         .with_spacer(theme::grid(1.0))
-        .with_child(album_tracks.lens(Ctx::map(Cached::data)))
+        .with_child(album_tracks.lens(FilterAlbumTracks))
 }
 
 fn cover_widget(size: f64) -> impl Widget<Arc<Album>> {
@@ -276,4 +279,51 @@ impl PlayableIter for Arc<Album> {
     fn count(&self) -> usize {
         self.tracks.len()
     }
+}
+
+impl Lens<Ctx<Arc<CommonCtx>, Cached<Arc<Album>>>, Ctx<Arc<CommonCtx>, Vector<Arc<Track>>>>
+    for FilterAlbumTracks
+{
+    fn with<V, F>(&self, data: &Ctx<Arc<CommonCtx>, Cached<Arc<Album>>>, f: F) -> V
+    where
+        F: FnOnce(&Ctx<Arc<CommonCtx>, Vector<Arc<Track>>>) -> V,
+    {
+        let query = data.ctx.library_search.trim().to_lowercase();
+        let filtered = if query.is_empty() || !matches!(data.ctx.nav, Nav::AlbumDetail(_, _)) {
+            data.data.data.tracks.clone()
+        } else {
+            data.data
+                .data
+                .tracks
+                .iter()
+                .filter(|track| matches_track_query(track, &query))
+                .cloned()
+                .collect()
+        };
+        let mapped = Ctx::new(data.ctx.clone(), filtered);
+        f(&mapped)
+    }
+
+    fn with_mut<V, F>(&self, data: &mut Ctx<Arc<CommonCtx>, Cached<Arc<Album>>>, f: F) -> V
+    where
+        F: FnOnce(&mut Ctx<Arc<CommonCtx>, Vector<Arc<Track>>>) -> V,
+    {
+        let ctx = data.ctx.clone();
+        let mut mapped = Ctx::new(ctx, data.data.data.tracks.clone());
+        let v = f(&mut mapped);
+        data.ctx = mapped.ctx;
+        v
+    }
+}
+
+fn matches_track_query(track: &Arc<Track>, query: &str) -> bool {
+    fn contains(haystack: &str, needle: &str) -> bool {
+        haystack.to_lowercase().contains(needle)
+    }
+
+    contains(&track.name, query)
+        || track
+            .artists
+            .iter()
+            .any(|artist| contains(&artist.name, query))
 }

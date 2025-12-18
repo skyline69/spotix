@@ -381,10 +381,10 @@ impl StreamedFile {
             {
                 log::warn!("failed to save audio file to cache: {err:?}");
             }
-            if let Some(limit) = self.audio_cache_limit {
-                if let Err(err) = self.cache.enforce_audio_limit(limit) {
-                    log::warn!("failed to enforce audio cache limit: {err:?}");
-                }
+            if let Some(limit) = self.audio_cache_limit
+                && let Err(err) = self.cache.enforce_audio_limit(limit)
+            {
+                log::warn!("failed to enforce audio cache limit: {err:?}");
             }
         }
 

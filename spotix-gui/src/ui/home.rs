@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use druid::im::Vector;
 use druid::widget::{Either, Flex, Label, Scroll};
-use druid::{LensExt, Selector, Widget, WidgetExt, widget::List};
+use druid::{Lens, LensExt, Selector, Widget, WidgetExt, widget::List};
 
-use crate::data::{Artist, Ctx, HomeDetail, MixedView, Show, Shows, Track, WithCtx};
+use crate::data::{
+    Artist, CommonCtx, Ctx, HomeDetail, MixedView, Nav, Show, Shows, Track, WithCtx,
+};
 use crate::ui::library::{LOAD_SHOWS, SAVE_SHOW, UNSAVE_SHOW};
 use crate::widget::Empty;
 use crate::{
@@ -342,7 +344,7 @@ fn show_results_widget() -> impl Widget<WithCtx<MixedView>> {
             Scroll::new(List::new(|| show::show_widget(true)).horizontal()).align_left(),
         ),
     )
-    .lens(Ctx::map(MixedView::shows))
+    .lens(FilterShows)
 }
 
 fn user_top_artists_widget() -> impl Widget<AppState> {
@@ -389,4 +391,49 @@ fn user_top_tracks_widget() -> impl Widget<AppState> {
         |_, data, d| data.home_detail.user_top_tracks.defer(d),
         |_, data, r| data.home_detail.user_top_tracks.update(r),
     )
+}
+
+struct FilterShows;
+
+impl Lens<Ctx<Arc<CommonCtx>, MixedView>, Ctx<Arc<CommonCtx>, Vector<Arc<Show>>>> for FilterShows {
+    fn with<V, F>(&self, data: &Ctx<Arc<CommonCtx>, MixedView>, f: F) -> V
+    where
+        F: FnOnce(&Ctx<Arc<CommonCtx>, Vector<Arc<Show>>>) -> V,
+    {
+        let query = data.ctx.library_search.trim().to_lowercase();
+        let nav = &data.ctx.nav;
+        let filtered = if query.is_empty() || !matches!(nav, Nav::Shows) {
+            data.data.shows.clone()
+        } else {
+            data.data
+                .shows
+                .iter()
+                .filter(|show| matches_show_query(show, &query))
+                .cloned()
+                .collect()
+        };
+        let mapped = Ctx::new(data.ctx.clone(), filtered);
+        f(&mapped)
+    }
+
+    fn with_mut<V, F>(&self, data: &mut Ctx<Arc<CommonCtx>, MixedView>, f: F) -> V
+    where
+        F: FnOnce(&mut Ctx<Arc<CommonCtx>, Vector<Arc<Show>>>) -> V,
+    {
+        let ctx = data.ctx.clone();
+        let mut mapped = Ctx::new(ctx, data.data.shows.clone());
+        let v = f(&mut mapped);
+        data.ctx = mapped.ctx;
+        v
+    }
+}
+
+fn matches_show_query(show: &Arc<Show>, query: &str) -> bool {
+    fn contains(haystack: &str, needle: &str) -> bool {
+        haystack.to_lowercase().contains(needle)
+    }
+
+    contains(&show.name, query)
+        || contains(&show.publisher, query)
+        || contains(&show.description, query)
 }

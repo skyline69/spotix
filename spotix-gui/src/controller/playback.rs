@@ -447,16 +447,16 @@ impl PlaybackController {
                         && let (Some(secs), Some(nanos)) = (
                             dur.get("secs").and_then(|v| v.as_u64()),
                             dur.get("nanos").and_then(|v| v.as_u64()),
-                        ) {
-                            let millis = secs.saturating_mul(1000) + nanos / 1_000_000;
-                            track
-                                .insert("duration_ms".to_string(), serde_json::Value::from(millis));
-                            value["track"] = serde_json::Value::Object(track);
-                            if let Ok(snap) = serde_json::from_value::<RestoreSnapshot>(value) {
-                                log::info!("parsed legacy playback snapshot from {:?}", path);
-                                return Some(snap);
-                            }
+                        )
+                    {
+                        let millis = secs.saturating_mul(1000) + nanos / 1_000_000;
+                        track.insert("duration_ms".to_string(), serde_json::Value::from(millis));
+                        value["track"] = serde_json::Value::Object(track);
+                        if let Ok(snap) = serde_json::from_value::<RestoreSnapshot>(value) {
+                            log::info!("parsed legacy playback snapshot from {:?}", path);
+                            return Some(snap);
                         }
+                    }
                 }
                 None
             }
@@ -487,9 +487,10 @@ impl PlaybackController {
                     cmd::RESTORE_SNAPSHOT_READY,
                     snapshot,
                     Target::Widget(widget_id),
-                ) {
-                    log::error!("failed to dispatch snapshot restore: {err}");
-                }
+                )
+            {
+                log::error!("failed to dispatch snapshot restore: {err}");
+            }
             if snapshot_opt.is_none() {
                 let _ = fs::remove_file(&path);
             }
