@@ -3,7 +3,7 @@ use std::sync::Arc;
 use druid::{Data, Lens, im::Vector};
 use serde::{Deserialize, Deserializer, Serialize};
 
-use crate::data::utils::sanitize_html_string;
+use crate::data::utils::{Page, sanitize_html_string};
 use crate::data::{
     Image, Promise, Track, TrackId,
     config::{SortCriteria, SortOrder},
@@ -13,7 +13,7 @@ use crate::data::{
 #[derive(Clone, Debug, Data, Lens)]
 pub struct PlaylistDetail {
     pub playlist: Promise<Playlist, PlaylistLink>,
-    pub tracks: Promise<PlaylistTracks, (PlaylistLink, SortCriteria, SortOrder)>,
+    pub tracks: Promise<PlaylistTracks, (PlaylistLink, SortCriteria, SortOrder, bool)>,
 }
 
 #[derive(Clone, Debug, Data, Lens, Deserialize)]
@@ -69,6 +69,9 @@ pub struct PlaylistTracks {
     pub id: Arc<str>,
     pub name: Arc<str>,
     pub tracks: Vector<Arc<Track>>,
+    pub total: usize,
+    pub next_offset: usize,
+    pub loading_more: bool,
 }
 
 impl PlaylistTracks {
@@ -77,6 +80,34 @@ impl PlaylistTracks {
             id: self.id.clone(),
             name: self.name.clone(),
         }
+    }
+
+    pub fn from_page(link: &PlaylistLink, page: Page<Arc<Track>>) -> Self {
+        let next_offset = (page.offset + page.limit).min(page.total);
+        Self {
+            id: link.id.clone(),
+            name: link.name.clone(),
+            tracks: page.items,
+            total: page.total,
+            next_offset,
+            loading_more: false,
+        }
+    }
+
+    pub fn from_full(link: &PlaylistLink, tracks: Vector<Arc<Track>>) -> Self {
+        let total = tracks.len();
+        Self {
+            id: link.id.clone(),
+            name: link.name.clone(),
+            next_offset: total,
+            total,
+            tracks,
+            loading_more: false,
+        }
+    }
+
+    pub fn has_more(&self) -> bool {
+        self.tracks.len() < self.total
     }
 }
 

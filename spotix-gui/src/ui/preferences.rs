@@ -201,6 +201,13 @@ fn general_tab_widget() -> impl Widget<AppState> {
             .lens(AppState::config.then(Config::show_track_cover)),
     );
 
+    col = col.with_spacer(theme::grid(1.0));
+
+    col = col.with_child(
+        Checkbox::new("Enable pagination for long playlists")
+            .lens(AppState::config.then(Config::enable_pagination)),
+    );
+
     col = col.with_spacer(theme::grid(3.0));
 
     // Audio quality

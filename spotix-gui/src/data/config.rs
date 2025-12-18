@@ -163,6 +163,7 @@ pub struct Config {
     pub seek_duration: usize,
     /// Audio cache limit in megabytes. 0 = unlimited.
     pub audio_cache_limit_mb: f64,
+    pub enable_pagination: bool,
     pub lastfm_session_key: Option<String>,
     pub lastfm_api_key: Option<String>,
     pub lastfm_api_secret: Option<String>,
@@ -186,6 +187,7 @@ impl Default for Config {
             paginated_limit: 500,
             seek_duration: 10,
             audio_cache_limit_mb: 4096.0,
+            enable_pagination: true,
             lastfm_session_key: None,
             lastfm_api_key: None,
             lastfm_api_secret: None,

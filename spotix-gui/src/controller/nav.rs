@@ -57,6 +57,7 @@ impl NavController {
                         link.to_owned(),
                         data.config.sort_criteria,
                         data.config.sort_order,
+                        data.config.enable_pagination,
                     )));
                 }
             }

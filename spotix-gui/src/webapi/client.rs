@@ -1407,7 +1407,12 @@ impl WebApi {
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks
-    pub fn get_playlist_tracks(&self, id: &str) -> Result<Vector<Arc<Track>>, Error> {
+    pub fn get_playlist_tracks_page(
+        &self,
+        id: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<Page<Arc<Track>>, Error> {
         #[derive(Clone, Deserialize)]
         struct PlaylistItem {
             track: OptionalTrack,
@@ -1425,14 +1430,22 @@ impl WebApi {
 
         let request = &RequestBuilder::new(format!("v1/playlists/{id}/tracks"), Method::Get, None)
             .query("marker", "from_token")
-            .query("additional_types", "track");
+            .query("additional_types", "track")
+            .query("offset", offset.to_string())
+            .query("limit", limit.to_string());
 
-        let result: Vector<PlaylistItem> =
-            self.load_all_pages_cached(request, "playlist-tracks", id, CachePolicy::Use)?;
+        let page_key = format!("{id}-o{offset}-l{limit}");
+        let (page, _) = self.load_cached_value::<Page<PlaylistItem>>(
+            request,
+            "playlist-tracks",
+            &page_key,
+            CachePolicy::Use,
+        )?;
 
         let local_track_manager = self.local_track_manager.lock();
 
-        Ok(result
+        let items = page
+            .items
             .into_iter()
             .enumerate()
             .filter_map(|(index, item)| {
@@ -1440,10 +1453,31 @@ impl WebApi {
                     OptionalTrack::Track(track) => track,
                     OptionalTrack::Json(json) => local_track_manager.find_local_track(json)?,
                 };
-                Arc::make_mut(&mut track).track_pos = index;
+                Arc::make_mut(&mut track).track_pos = page.offset + index;
                 Some(track)
             })
-            .collect())
+            .collect();
+
+        Ok(Page {
+            items,
+            limit: page.limit,
+            offset: page.offset,
+            total: page.total,
+        })
+    }
+
+    pub fn get_playlist_tracks_all(&self, id: &str) -> Result<Vector<Arc<Track>>, Error> {
+        let mut all = Vector::new();
+        let mut offset = 0usize;
+        loop {
+            let page = self.get_playlist_tracks_page(id, offset, 100)?;
+            offset = page.offset + page.limit;
+            all.append(page.items);
+            if offset >= page.total {
+                break;
+            }
+        }
+        Ok(all)
     }
 
     pub fn change_playlist_details(&self, id: &str, name: &str) -> Result<(), Error> {

@@ -1,18 +1,19 @@
-use std::{cell::RefCell, cmp::Ordering, rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use druid::{
-    Insets, Lens, LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint, Widget,
-    WidgetExt, WindowDesc,
+    Data, Insets, Lens, LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint,
+    Widget, WidgetExt, WindowDesc,
     im::Vector,
-    widget::{Button, Either, Flex, Label, LensWrap, LineBreaking, List, TextBox},
+    widget::{
+        Button, Either, Flex, Label, LensWrap, LineBreaking, List, Spinner, TextBox, ViewSwitcher,
+    },
 };
-use itertools::Itertools;
 
 use crate::{
     cmd,
     data::{
         AppState, Ctx, Library, Nav, Playlist, PlaylistAddTrack, PlaylistDetail, PlaylistLink,
-        PlaylistRemoveTrack, PlaylistTracks, Track, WithCtx,
+        PlaylistRemoveTrack, PlaylistTracks, Promise, Track, WithCtx,
         config::{SortCriteria, SortOrder},
     },
     error::Error,
@@ -24,8 +25,19 @@ use crate::{
 use super::{playable, theme, track, utils};
 
 pub const LOAD_LIST: Selector = Selector::new("app.playlist.load-list");
-pub const LOAD_DETAIL: Selector<(PlaylistLink, SortCriteria, SortOrder)> =
+pub const LOAD_DETAIL: Selector<(PlaylistLink, SortCriteria, SortOrder, bool)> =
     Selector::new("app.playlist.load-detail");
+pub const LOAD_MORE_TRACKS: Selector<(PlaylistLink, usize)> =
+    Selector::new("app.playlist.load-more-tracks");
+const PAGE_SIZE: usize = 100;
+
+#[derive(Clone, Data)]
+struct PlaylistTracksPage {
+    items: Vector<Arc<Track>>,
+    total: usize,
+    offset: usize,
+    limit: usize,
+}
 pub const ADD_TRACK: Selector<PlaylistAddTrack> = Selector::new("app.playlist.add-track");
 pub const REMOVE_TRACK: Selector<PlaylistRemoveTrack> = Selector::new("app.playlist.remove-track");
 
@@ -161,6 +173,7 @@ pub fn list_widget() -> impl Widget<AppState> {
                 p.link,
                 data.config.sort_criteria,
                 data.config.sort_order,
+                data.config.enable_pagination,
             )))
         },
     )
@@ -514,29 +527,62 @@ fn async_tracks_widget() -> impl Widget<AppState> {
     )
     .on_command_async(
         LOAD_DETAIL,
-        |(link, criteria, order): (PlaylistLink, SortCriteria, SortOrder)| {
-            let tracks = sort_playlist(
-                criteria,
-                order,
-                WebApi::global().get_playlist_tracks(&link.id),
-            );
-            tracks
+        |(link, _criteria, _order, enable_paging): (
+            PlaylistLink,
+            SortCriteria,
+            SortOrder,
+            bool,
+        )| {
+            if enable_paging {
+                WebApi::global()
+                    .get_playlist_tracks_page(&link.id, 0, PAGE_SIZE)
+                    .map(|page| PlaylistTracks::from_page(&link, page))
+            } else {
+                WebApi::global()
+                    .get_playlist_tracks_all(&link.id)
+                    .map(|tracks| PlaylistTracks::from_full(&link, tracks))
+            }
         },
         |_, data, d| data.playlist_detail.tracks.defer(d.clone()),
         |_, data, (def, tracks)| {
-            let (link, _, _) = def.clone();
-            let tracks = PlaylistTracks {
-                id: link.id.clone(),
-                name: link.name.clone(),
-                tracks,
-            };
-            data.playlist_detail.tracks.update((def, Ok(tracks)));
+            data.playlist_detail.tracks.update((def, tracks));
+        },
+    )
+    .on_command_async(
+        LOAD_MORE_TRACKS,
+        |(link, offset): (PlaylistLink, usize)| {
+            WebApi::global()
+                .get_playlist_tracks_page(&link.id, offset, PAGE_SIZE)
+                .map(|page| PlaylistTracksPage {
+                    items: page.items,
+                    total: page.total,
+                    offset: page.offset,
+                    limit: page.limit,
+                })
+        },
+        |_, data: &mut AppState, _| {
+            if let Promise::Resolved { val, .. } = &mut data.playlist_detail.tracks {
+                val.loading_more = true;
+            }
+        },
+        |_, data: &mut AppState, (_, result)| {
+            if let Promise::Resolved { val, .. } = &mut data.playlist_detail.tracks {
+                val.loading_more = false;
+                match result {
+                    Ok(page) => {
+                        val.tracks.append(page.items);
+                        val.total = page.total;
+                        val.next_offset = (page.offset + page.limit).min(page.total);
+                    }
+                    Err(err) => log::error!("failed to load more tracks: {err}"),
+                }
+            }
         },
     )
 }
 
 fn tracks_widget() -> impl Widget<WithCtx<PlaylistTracks>> {
-    playable::list_widget_with_find(
+    let list = playable::list_widget_with_find(
         playable::Display {
             track: track::Display {
                 title: true,
@@ -547,40 +593,31 @@ fn tracks_widget() -> impl Widget<WithCtx<PlaylistTracks>> {
             },
         },
         cmd::FIND_IN_PLAYLIST,
-    )
-}
+    );
 
-fn sort_playlist(
-    sort_criteria: SortCriteria,
-    sort_order: SortOrder,
-    result: Result<Vector<Arc<Track>>, Error>,
-) -> Vector<Arc<Track>> {
-    let playlist = result.unwrap_or_else(|_| Vector::new());
+    let load_more = Flex::row()
+        .with_child(
+            ViewSwitcher::new(
+                |tracks: &PlaylistTracks, _| (tracks.loading_more, tracks.has_more()),
+                |state, _tracks: &PlaylistTracks, _| match state {
+                    (true, _) => Spinner::new().boxed(),
+                    (false, true) => Button::new("Load more")
+                        .on_left_click(|ctx, _, tracks: &mut PlaylistTracks, _| {
+                            let link = tracks.link();
+                            let offset = tracks.next_offset;
+                            ctx.submit_command(LOAD_MORE_TRACKS.with((link, offset)));
+                        })
+                        .boxed(),
+                    _ => Empty.boxed(),
+                },
+            )
+            .padding((0.0, theme::grid(1.0))),
+        )
+        .align_left();
 
-    let sorted_playlist: Vector<Arc<Track>> = playlist
-        .into_iter()
-        .sorted_by(|a, b| {
-            let method = match sort_criteria {
-                SortCriteria::Title => a.name.cmp(&b.name),
-                SortCriteria::Artist => a.artist_name().cmp(&b.artist_name()),
-                SortCriteria::Album => a.album_name().cmp(&b.album_name()),
-                SortCriteria::Duration => a.duration.cmp(&b.duration),
-                SortCriteria::DateAdded => Ordering::Equal,
-            };
-
-            if sort_order == SortOrder::Descending {
-                method.reverse()
-            } else {
-                method
-            }
-        })
-        .collect();
-
-    if sort_criteria == SortCriteria::DateAdded && sort_order == SortOrder::Descending {
-        sorted_playlist.into_iter().rev().collect()
-    } else {
-        sorted_playlist
-    }
+    Flex::column()
+        .with_child(list)
+        .with_child(load_more.lens(Ctx::data()))
 }
 
 fn playlist_menu_ctx(playlist: &WithCtx<Playlist>) -> Menu<AppState> {
