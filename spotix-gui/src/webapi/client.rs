@@ -1075,6 +1075,15 @@ impl WebApi {
         Ok(result.episodes)
     }
 
+    pub fn get_episode(&self, id: &str) -> Result<Arc<Episode>, Error> {
+        let request = &RequestBuilder::new(format!("v1/episodes/{id}"), Method::Get, None)
+            .query("market", "from_token");
+        let result: Cached<Arc<Episode>> = self.load_cached(request, "episode", id)?;
+        Ok(result.data)
+    }
+
+    // https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback
+
     // https://developer.spotify.com/documentation/web-api/reference/get-a-shows-episodes
     pub fn get_show_episodes(&self, id: &str) -> Result<Vector<Arc<Episode>>, Error> {
         self.get_show_episodes_with_policy(id, CachePolicy::Use)

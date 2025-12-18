@@ -1,11 +1,15 @@
 use std::{
+    fs,
+    io::Write,
+    path::PathBuf,
+    sync::{Arc, LazyLock, Mutex},
     thread::{self, JoinHandle},
     time::Duration,
 };
 
 use crossbeam_channel::Sender;
 use druid::{
-    Code, ExtEventSink, InternalLifeCycle, KbKey, WindowHandle,
+    Code, ExtEventSink, InternalLifeCycle, KbKey, Target, WindowHandle,
     im::Vector,
     widget::{Controller, prelude::*},
 };
@@ -25,13 +29,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{
     cmd,
+    cmd::RestoreSnapshot,
     data::Nav,
     data::{
         AppState, Config, NowPlaying, Playable, Playback, PlaybackOrigin, PlaybackState,
         QueueBehavior, QueueEntry,
     },
     ui::lyrics,
+    webapi::WebApi,
 };
+use serde_json;
 
 pub struct PlaybackController {
     sender: Option<Sender<PlayerEvent>>,
@@ -41,7 +48,16 @@ pub struct PlaybackController {
     has_scrobbled: bool,
     scrobbler: Option<Scrobbler>,
     startup: bool,
+    pending_restore: Option<PendingRestore>,
+    snapshot_path: Option<PathBuf>,
 }
+
+struct PendingRestore {
+    progress: Duration,
+    is_playing: bool,
+}
+
+static SNAPSHOT_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 fn init_scrobbler_instance(data: &AppState) -> Option<Scrobbler> {
     if data.config.lastfm_enable {
         if let (Some(api_key), Some(api_secret), Some(session_key)) = (
@@ -78,6 +94,8 @@ impl PlaybackController {
             has_scrobbled: false,
             scrobbler: None,
             startup: true,
+            pending_restore: None,
+            snapshot_path: Config::last_playback_path(),
         }
     }
 
@@ -408,6 +426,159 @@ impl PlaybackController {
             ctx.submit_command(lyrics::SHOW_LYRICS.with(now_playing.clone()));
         }
     }
+
+    fn load_snapshot(&mut self, sink: ExtEventSink, widget_id: WidgetId) {
+        let Some(path) = self.snapshot_path.clone() else {
+            return;
+        };
+
+        thread::spawn(move || {
+            fn parse_snapshot(contents: &str, path: &PathBuf) -> Option<RestoreSnapshot> {
+                if let Ok(s) = serde_json::from_str::<RestoreSnapshot>(contents) {
+                    return Some(s);
+                }
+                let mut value: serde_json::Value = serde_json::from_str(contents).ok()?;
+                if let Some(track) = value
+                    .get_mut("track")
+                    .and_then(|t| t.as_object_mut())
+                    .cloned()
+                {
+                    let mut track = track;
+                    if let Some(dur) = track.get("duration_ms") {
+                        if let (Some(secs), Some(nanos)) = (
+                            dur.get("secs").and_then(|v| v.as_u64()),
+                            dur.get("nanos").and_then(|v| v.as_u64()),
+                        ) {
+                            let millis = secs.saturating_mul(1000) + nanos / 1_000_000;
+                            track
+                                .insert("duration_ms".to_string(), serde_json::Value::from(millis));
+                            value["track"] = serde_json::Value::Object(track);
+                            if let Ok(snap) = serde_json::from_value::<RestoreSnapshot>(value) {
+                                log::info!("parsed legacy playback snapshot from {:?}", path);
+                                return Some(snap);
+                            }
+                        }
+                    }
+                }
+                None
+            }
+
+            let snapshot_opt = match fs::read_to_string(&path) {
+                Ok(contents) => match parse_snapshot(&contents, &path) {
+                    Some(s) => {
+                        log::info!("loaded playback snapshot from {:?}", path);
+                        Some(s)
+                    }
+                    None => {
+                        log::warn!(
+                            "invalid playback snapshot {:?}: ({} bytes)",
+                            path,
+                            contents.len()
+                        );
+                        None
+                    }
+                },
+                Err(err) => {
+                    log::debug!("no playback snapshot {:?}: {err}", path);
+                    None
+                }
+            };
+
+            if let Some(snapshot) = snapshot_opt.clone() {
+                if let Err(err) = sink.submit_command(
+                    cmd::RESTORE_SNAPSHOT_READY,
+                    snapshot,
+                    Target::Widget(widget_id),
+                ) {
+                    log::error!("failed to dispatch snapshot restore: {err}");
+                }
+            }
+            if snapshot_opt.is_none() {
+                let _ = fs::remove_file(&path);
+            }
+        });
+    }
+
+    fn save_snapshot(&self, now_playing: &NowPlaying, state: PlaybackState) {
+        let Some(path) = self.snapshot_path.clone() else {
+            return;
+        };
+
+        let (id, is_episode, track_snapshot) = match &now_playing.item {
+            Playable::Track(track) => {
+                if track.is_local {
+                    return;
+                }
+                let album = track
+                    .album
+                    .as_ref()
+                    .map(|a| cmd::SnapshotAlbum {
+                        id: a.id.to_string(),
+                        name: a.name.clone(),
+                        images: a.images.iter().cloned().collect(),
+                    })
+                    .unwrap_or(cmd::SnapshotAlbum {
+                        id: String::new(),
+                        name: Arc::from(""),
+                        images: Vec::new(),
+                    });
+                let artists = track
+                    .artists
+                    .iter()
+                    .map(|a| cmd::SnapshotArtist {
+                        id: a.id.to_string(),
+                        name: a.name.clone(),
+                    })
+                    .collect();
+                let snap = cmd::SnapshotTrack {
+                    id: track.id.0.to_base62(),
+                    name: track.name.clone(),
+                    album,
+                    artists,
+                    duration_ms: track.duration.as_millis() as u64,
+                    explicit: track.explicit,
+                    is_local: track.is_local,
+                };
+                (snap.id.clone(), false, Some(snap))
+            }
+            Playable::Episode(episode) => (episode.id.0.to_base62(), true, None),
+        };
+
+        let snapshot = RestoreSnapshot {
+            id,
+            is_episode,
+            origin: now_playing.origin.clone(),
+            progress_ms: now_playing.progress.as_millis().min(u64::MAX as u128) as u64,
+            is_playing: matches!(state, PlaybackState::Playing),
+            track: track_snapshot,
+        };
+
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _guard = SNAPSHOT_WRITE_LOCK.lock().ok();
+        let tmp = path.with_extension("tmp");
+        match fs::File::create(&tmp) {
+            Ok(file) => {
+                let mut writer = std::io::BufWriter::new(file);
+                if let Err(err) = serde_json::to_writer(&mut writer, &snapshot) {
+                    log::warn!("failed to serialize snapshot to {:?}: {err}", tmp);
+                    let _ = fs::remove_file(&tmp);
+                    return;
+                }
+                if let Err(err) = writer.flush() {
+                    log::warn!("failed to flush snapshot {:?}: {err}", tmp);
+                    let _ = fs::remove_file(&tmp);
+                    return;
+                }
+                match fs::rename(&tmp, &path) {
+                    Ok(_) => log::debug!("saved playback snapshot to {:?}", path),
+                    Err(err) => log::warn!("failed to store snapshot {:?}: {err}", path),
+                }
+            }
+            Err(err) => log::warn!("failed to create snapshot temp {:?}: {err}", tmp),
+        }
+    }
 }
 
 impl<W> Controller<AppState, W> for PlaybackController
@@ -450,7 +621,19 @@ where
                     self.update_media_control_playback(&data.playback);
                     self.update_media_control_metadata(&data.playback);
                     if let Some(now_playing) = &data.playback.now_playing {
+                        self.save_snapshot(now_playing, data.playback.state);
                         self.update_lyrics(ctx, data, now_playing);
+                    }
+                    if let Some(pending) = self.pending_restore.take() {
+                        if let Some(now_playing) = &data.playback.now_playing {
+                            let progress = pending.progress.min(now_playing.item.duration());
+                            if progress > Duration::ZERO {
+                                self.seek(progress);
+                            }
+                        }
+                        if !pending.is_playing {
+                            self.pause();
+                        }
                     }
                 } else {
                     log::warn!("played item not found in playback queue");
@@ -467,11 +650,17 @@ where
             }
             Event::Command(cmd) if cmd.is(cmd::PLAYBACK_PAUSING) => {
                 data.pause_playback();
+                if let Some(now_playing) = &data.playback.now_playing {
+                    self.save_snapshot(now_playing, data.playback.state);
+                }
                 self.update_media_control_playback(&data.playback);
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::PLAYBACK_RESUMING) => {
                 data.resume_playback();
+                if let Some(now_playing) = &data.playback.now_playing {
+                    self.save_snapshot(now_playing, data.playback.state);
+                }
                 self.update_media_control_playback(&data.playback);
                 ctx.set_handled();
             }
@@ -482,6 +671,116 @@ where
             Event::Command(cmd) if cmd.is(cmd::PLAYBACK_STOPPED) => {
                 data.stop_playback();
                 self.update_media_control_playback(&data.playback);
+                ctx.set_handled();
+            }
+            // Remote playback restore removed; using local snapshot file instead.
+            Event::Command(cmd) if cmd.is(cmd::RESTORE_SNAPSHOT_READY) => {
+                let snapshot = cmd.get_unchecked(cmd::RESTORE_SNAPSHOT_READY).clone();
+                let sink = ctx.get_external_handle();
+                let widget_id = ctx.widget_id();
+                let snapshot_path = self.snapshot_path.clone();
+                thread::spawn(move || {
+                    let api = WebApi::global();
+                    // Prefer cached track data if available to avoid fetch failures.
+                    let from_cache = snapshot.track.clone().map(|t| {
+                        let album_link = crate::data::AlbumLink {
+                            id: Arc::from(t.album.id),
+                            name: t.album.name,
+                            images: t.album.images.into_iter().collect(),
+                        };
+                        let artists = t
+                            .artists
+                            .into_iter()
+                            .map(|a| crate::data::ArtistLink {
+                                id: Arc::from(a.id),
+                                name: a.name,
+                            })
+                            .collect();
+                        let track = crate::data::Track {
+                            id: crate::data::TrackId(
+                                spotix_core::item_id::ItemId::from_base62(
+                                    &t.id,
+                                    spotix_core::item_id::ItemIdType::Track,
+                                )
+                                .unwrap_or(spotix_core::item_id::ItemId::INVALID),
+                            ),
+                            name: t.name,
+                            album: Some(album_link),
+                            artists,
+                            duration: Duration::from_millis(t.duration_ms),
+                            disc_number: 1,
+                            track_number: 1,
+                            explicit: t.explicit,
+                            is_local: t.is_local,
+                            local_path: None,
+                            is_playable: None,
+                            popularity: None,
+                            track_pos: 0,
+                            lyrics: None,
+                        };
+                        Playable::Track(Arc::new(track))
+                    });
+
+                    let fetched = if snapshot.is_episode {
+                        match api.get_episode(&snapshot.id) {
+                            Ok(ep) => Some(Playable::Episode(ep)),
+                            Err(err) => {
+                                log::warn!(
+                                    "snapshot restore failed for episode {}: {err}",
+                                    snapshot.id
+                                );
+                                None
+                            }
+                        }
+                    } else {
+                        match api.get_track(&snapshot.id) {
+                            Ok(track) => Some(Playable::Track(track)),
+                            Err(err) => {
+                                log::warn!(
+                                    "snapshot restore failed for track {}: {err}",
+                                    snapshot.id
+                                );
+                                None
+                            }
+                        }
+                    };
+
+                    let playable = fetched.or(from_cache);
+
+                    if let Some(playable) = playable {
+                        let entry = QueueEntry {
+                            item: playable,
+                            origin: snapshot.origin,
+                        };
+                        log::info!("restoring playback snapshot for id {}", snapshot.id);
+                        let _ = sink.submit_command(
+                            cmd::RESTORE_SNAPSHOT_RESOLVED,
+                            (entry, snapshot.progress_ms, snapshot.is_playing),
+                            widget_id,
+                        );
+                    } else {
+                        log::warn!(
+                            "failed to resolve snapshot id {}, skipping restore",
+                            snapshot.id
+                        );
+                        if let Some(path) = snapshot_path {
+                            let _ = fs::remove_file(path);
+                        }
+                    }
+                });
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::RESTORE_SNAPSHOT_RESOLVED) => {
+                let (entry, progress_ms, is_playing) =
+                    cmd.get_unchecked(cmd::RESTORE_SNAPSHOT_RESOLVED);
+                let mut queue = Vector::new();
+                queue.push_back(entry.clone());
+                data.playback.queue = queue;
+                self.pending_restore = Some(PendingRestore {
+                    progress: Duration::from_millis(*progress_ms),
+                    is_playing: *is_playing,
+                });
+                self.play(&data.playback.queue, 0);
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::PLAY_TRACKS) => {
@@ -601,6 +900,7 @@ where
                 // Initialize values loaded from the config.
                 self.set_volume(data.playback.volume);
                 self.set_queue_behavior(data.playback.queue_behavior);
+                self.load_snapshot(ctx.get_external_handle(), ctx.widget_id());
 
                 // Request focus so we can receive keyboard events.
                 ctx.submit_command(cmd::SET_FOCUS.to(ctx.widget_id()));

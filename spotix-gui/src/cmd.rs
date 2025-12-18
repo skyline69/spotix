@@ -1,11 +1,11 @@
-use crate::data::Track;
 use druid::{Selector, WidgetId};
+use serde::{Deserialize, Serialize};
 use spotix_core::{item_id::ItemId, player::item::PlaybackItem};
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{
-    data::{Nav, PlaybackPayload, QueueBehavior, QueueEntry},
+    data::{Nav, PlaybackOrigin, PlaybackPayload, QueueBehavior, QueueEntry, Track},
     ui::find::Find,
 };
 
@@ -44,6 +44,10 @@ pub const PLAYBACK_PAUSING: Selector = Selector::new("app.playback-pausing");
 pub const PLAYBACK_RESUMING: Selector = Selector::new("app.playback-resuming");
 pub const PLAYBACK_BLOCKED: Selector = Selector::new("app.playback-blocked");
 pub const PLAYBACK_STOPPED: Selector = Selector::new("app.playback-stopped");
+pub const RESTORE_SNAPSHOT_READY: Selector<RestoreSnapshot> =
+    Selector::new("app.playback-restore-snapshot-ready");
+pub const RESTORE_SNAPSHOT_RESOLVED: Selector<(QueueEntry, u64, bool)> =
+    Selector::new("app.playback-restore-snapshot-resolved");
 
 // Playback control
 pub const PLAY: Selector<usize> = Selector::new("app.play-index");
@@ -74,3 +78,39 @@ pub const LOAD_TRACK_CREDITS: Selector<Arc<Track>> = Selector::new("app.credits-
 
 // Artwork
 pub const SHOW_ARTWORK: Selector = Selector::new("app.show-artwork");
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RestoreSnapshot {
+    pub id: String,
+    #[serde(default)]
+    pub is_episode: bool,
+    pub origin: PlaybackOrigin,
+    pub progress_ms: u64,
+    pub is_playing: bool,
+    #[serde(default)]
+    pub track: Option<SnapshotTrack>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SnapshotTrack {
+    pub id: String,
+    pub name: Arc<str>,
+    pub album: SnapshotAlbum,
+    pub artists: Vec<SnapshotArtist>,
+    pub duration_ms: u64,
+    pub explicit: bool,
+    pub is_local: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SnapshotAlbum {
+    pub id: String,
+    pub name: Arc<str>,
+    pub images: Vec<crate::data::Image>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SnapshotArtist {
+    pub id: String,
+    pub name: Arc<str>,
+}

@@ -7,7 +7,7 @@ use spotix_core::item_id::{ItemId, ItemIdType};
 
 use crate::data::{AlbumLink, ArtistLink};
 
-#[derive(Clone, Debug, Data, Lens, Deserialize)]
+#[derive(Clone, Debug, Data, Lens, Deserialize, Serialize)]
 pub struct Track {
     #[serde(default)]
     pub id: TrackId,

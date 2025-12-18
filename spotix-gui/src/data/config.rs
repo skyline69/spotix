@@ -217,6 +217,10 @@ impl Config {
         Self::config_dir().map(|dir| dir.join("themes"))
     }
 
+    pub fn last_playback_path() -> Option<PathBuf> {
+        Self::config_dir().map(|dir| dir.join("last_playback.json"))
+    }
+
     fn config_path() -> Option<PathBuf> {
         Self::config_dir().map(|dir| dir.join(CONFIG_FILENAME))
     }

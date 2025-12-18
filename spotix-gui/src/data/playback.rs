@@ -80,7 +80,7 @@ pub enum QueueBehavior {
     LoopAll,
 }
 
-#[derive(Copy, Clone, Debug, Data, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Data, Eq, PartialEq, Serialize, Deserialize)]
 pub enum PlaybackState {
     Loading,
     Playing,
@@ -139,7 +139,7 @@ impl NowPlaying {
     }
 }
 
-#[derive(Clone, Debug, Data)]
+#[derive(Clone, Debug, Data, Serialize, Deserialize)]
 pub enum PlaybackOrigin {
     Home,
     Library,
