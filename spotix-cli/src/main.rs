@@ -17,13 +17,30 @@ fn main() {
     env_logger::init();
 
     let args: Vec<String> = env::args().collect();
-    let track_id = args
-        .get(1)
-        .expect("Expected <track_id> in the first parameter");
-    let login_creds = Credentials::from_username_and_password(
-        env::var("SPOTIFY_USERNAME").unwrap(),
-        env::var("SPOTIFY_PASSWORD").unwrap(),
-    );
+    let track_id = match args.get(1) {
+        Some(id) => id,
+        None => {
+            let exe = args.first().map(String::as_str).unwrap_or("spotix-cli");
+            eprintln!("Usage: {exe} <track_id>");
+            std::process::exit(1);
+        }
+    };
+
+    let username = match env::var("SPOTIFY_USERNAME") {
+        Ok(u) => u,
+        Err(_) => {
+            eprintln!("Set SPOTIFY_USERNAME and SPOTIFY_PASSWORD environment variables.");
+            std::process::exit(1);
+        }
+    };
+    let password = match env::var("SPOTIFY_PASSWORD") {
+        Ok(p) => p,
+        Err(_) => {
+            eprintln!("Set SPOTIFY_USERNAME and SPOTIFY_PASSWORD environment variables.");
+            std::process::exit(1);
+        }
+    };
+    let login_creds = Credentials::from_username_and_password(username, password);
     let session = SessionService::with_config(SessionConfig {
         login_creds,
         proxy_url: None,

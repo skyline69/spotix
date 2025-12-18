@@ -152,11 +152,11 @@ fn cover_widget(size: f64) -> impl Widget<NowPlaying> {
     .fix_size(size, size)
     .clip(Size::new(size, size).to_rounded_rect(4.0))
     .on_left_click(|ctx, _, np, _| {
-        if let Some(track) = np.item.track() {
-            if let Some(album) = &track.album {
-                ctx.submit_command(cmd::NAVIGATE.with(Nav::AlbumDetail(album.clone(), None)));
-                return;
-            }
+        if let Some(track) = np.item.track()
+            && let Some(album) = &track.album
+        {
+            ctx.submit_command(cmd::NAVIGATE.with(Nav::AlbumDetail(album.clone(), None)));
+            return;
         }
         // Fallback: keep existing behavior if we don't have an album link.
         ctx.submit_command(SHOW_ARTWORK);
