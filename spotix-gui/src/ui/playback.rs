@@ -398,11 +398,10 @@ impl SeekBar {
 
     fn current_progress(&self, data: &NowPlaying) -> Duration {
         let mut progress = self.base_progress;
-        if data.is_playing {
-            if let Some(last_tick) = self.last_tick {
+        if data.is_playing
+            && let Some(last_tick) = self.last_tick {
                 progress = progress.saturating_add(last_tick.elapsed());
             }
-        }
         progress.min(data.item.duration())
     }
 }

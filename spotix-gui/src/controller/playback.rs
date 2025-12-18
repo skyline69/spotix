@@ -38,7 +38,6 @@ use crate::{
     ui::lyrics,
     webapi::WebApi,
 };
-use serde_json;
 
 pub struct PlaybackController {
     sender: Option<Sender<PlayerEvent>>,
@@ -444,8 +443,8 @@ impl PlaybackController {
                     .cloned()
                 {
                     let mut track = track;
-                    if let Some(dur) = track.get("duration_ms") {
-                        if let (Some(secs), Some(nanos)) = (
+                    if let Some(dur) = track.get("duration_ms")
+                        && let (Some(secs), Some(nanos)) = (
                             dur.get("secs").and_then(|v| v.as_u64()),
                             dur.get("nanos").and_then(|v| v.as_u64()),
                         ) {
@@ -458,7 +457,6 @@ impl PlaybackController {
                                 return Some(snap);
                             }
                         }
-                    }
                 }
                 None
             }
@@ -484,15 +482,14 @@ impl PlaybackController {
                 }
             };
 
-            if let Some(snapshot) = snapshot_opt.clone() {
-                if let Err(err) = sink.submit_command(
+            if let Some(snapshot) = snapshot_opt.clone()
+                && let Err(err) = sink.submit_command(
                     cmd::RESTORE_SNAPSHOT_READY,
                     snapshot,
                     Target::Widget(widget_id),
                 ) {
                     log::error!("failed to dispatch snapshot restore: {err}");
                 }
-            }
             if snapshot_opt.is_none() {
                 let _ = fs::remove_file(&path);
             }

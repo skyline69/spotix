@@ -69,7 +69,7 @@ fn track_info_widget() -> impl Widget<AppState> {
 fn track_lyrics_widget() -> impl Widget<AppState> {
     Async::new(
         utils::spinner_widget,
-        || List::new(|| LyricLine::default()),
+        || List::new(LyricLine::default),
         || Label::new("No lyrics found for this track").center(),
     )
     .lens(Ctx::make(AppState::common_ctx, AppState::lyrics).then(Ctx::in_promise()))
@@ -106,11 +106,10 @@ impl<W: Widget<AppState>> Controller<AppState, W> for LyricsProgressController {
         data: &mut AppState,
         env: &druid::Env,
     ) {
-        if let druid::Event::Command(cmd) = event {
-            if cmd.is(cmd::PLAYBACK_PROGRESS) {
+        if let druid::Event::Command(cmd) = event
+            && cmd.is(cmd::PLAYBACK_PROGRESS) {
                 ctx.request_paint();
             }
-        }
         child.event(ctx, event, data, env);
     }
 }
@@ -130,11 +129,10 @@ impl Widget<WithCtx<TrackLines>> for LyricLine {
     ) {
         match event {
             Event::MouseDown(mouse) if mouse.button.is_left() => {
-                if let Ok(ms) = data.data.start_time_ms.parse::<u64>() {
-                    if ms != 0 {
+                if let Ok(ms) = data.data.start_time_ms.parse::<u64>()
+                    && ms != 0 {
                         ctx.submit_command(cmd::SKIP_TO_POSITION.with(ms));
                     }
-                }
                 ctx.set_handled();
             }
             _ => {}
