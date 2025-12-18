@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Spotix
+Comment=Fast and native Spotify client
+GenericName=Music Player
+Icon=spotix
+TryExec=spotix-gui
+Exec=spotix-gui %U
+Terminal=false
+MimeType=x-scheme-handler/spotix;
+Categories=Audio;Music;Player;AudioVideo;
+StartupWMClass=spotix-gui

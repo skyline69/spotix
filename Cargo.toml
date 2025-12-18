@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["spotix-core", "spotix-cli", "spotix-gui"]
+
+[profile.dev]
+opt-level = 1
+debug = true
+lto = false
+
+[profile.release]
+opt-level = 3
+strip = true
+lto = true
+codegen-units = 1
+
+[profile.dev.package.symphonia]
+opt-level = 2
+
+[profile.dev.package.libsamplerate]
+opt-level = 2

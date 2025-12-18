@@ -1,0 +1,10 @@
+Package: spotix-gui
+Version: $VERSION
+Architecture: $ARCHITECTURE
+Maintainer: skyline69
+Section: sound
+Priority: optional
+Homepage: https://github.com/skyline69/spotix
+Package-Type: deb
+Depends: libssl3 | libssl1.1, libgtk-3-0, libcairo2
+Description: Fast and native Spotify client

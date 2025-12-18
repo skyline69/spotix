@@ -1,0 +1,10 @@
+config.json
+target
+cache
+.cargo
+.idea
+.DS_Store
+.env
+*.iml
+rust-toolchain
+*.ico

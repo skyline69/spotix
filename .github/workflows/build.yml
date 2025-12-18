@@ -1,0 +1,343 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  VERSION_DATE: ${{ format('{0}.{1}.{2}', github.run_number, github.run_id, github.run_attempt) }}
+  VERSION_TIMESTAMP: ${{ github.event.repository.updated_at }}
+
+jobs:
+  code-style:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libssl-dev libasound2-dev
+
+      - name: Check Formatting
+        run: cargo clippy -- -D warnings
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - os: macos-latest
+          - os: windows-latest
+
+    runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: 11.0
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set Version Info
+        id: version
+        shell: bash
+        env:
+          FULL_SHA: ${{ github.sha }}
+        run: |
+          echo "BUILD_DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
+          echo "VERSION=0.1.0,$(date +'%Y%m%d.%H%M%S')" >> $GITHUB_ENV
+          SHORT_SHA=${FULL_SHA::7}
+          echo "RELEASE_VERSION=$(date +'%Y.%m.%d')-$SHORT_SHA" >> $GITHUB_ENV
+
+      - name: Setup Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ hashFiles('Cross.toml') }}
+
+      - name: Install Cross
+        if: runner.os == 'Linux'
+        run: cargo install cross
+
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build Release (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          rustup target add x86_64-apple-darwin aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin --target aarch64-apple-darwin
+
+      - name: Build Release (Windows)
+        if: runner.os == 'Windows'
+        run: cargo build --release
+
+      - name: Cache cargo-bundle and Homebrew
+        id: cache-tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-bundle
+            ~/Library/Caches/Homebrew
+            /usr/local/Cellar/create-dmg
+          key: ${{ runner.os }}-tools-${{ hashFiles('**/Cargo.lock', '.github/workflows/build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-tools-
+
+      - name: Install cargo-bundle
+        if: runner.os == 'macOS' && !steps.cache-tools.outputs.cache-hit
+        run: cargo install cargo-bundle
+
+      - name: Install create-dmg
+        if: runner.os == 'macOS' && !steps.cache-tools.outputs.cache-hit
+        run: brew install create-dmg
+
+      - name: Create macOS universal binary
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p spotix-gui/target/release
+          lipo -create -output spotix-gui/target/release/spotix-gui \
+            target/x86_64-apple-darwin/release/spotix-gui \
+            target/aarch64-apple-darwin/release/spotix-gui
+
+      - name: Bundle macOS Release
+        if: runner.os == 'macOS'
+        run: cargo bundle --release
+        working-directory: spotix-gui
+
+      - name: Create DMG
+        if: runner.os == 'macOS'
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "Spotix" \
+            --volicon "assets/logo.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "Spotix.app" 150 160 \
+            --hide-extension "Spotix.app" \
+            --app-drop-link 450 160 \
+            "Spotix.dmg" \
+            "../target/release/bundle/osx/Spotix.app"
+        working-directory: spotix-gui
+
+      - name: Upload macOS DMG
+        uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: Spotix.dmg
+          path: ./spotix-gui/Spotix.dmg
+
+      - name: Make Linux Binary Executable
+        if: runner.os == 'Linux'
+        run: chmod +x target/${{ matrix.target }}/release/spotix-gui
+
+      - name: Rename Linux Binary
+        if: runner.os == 'Linux'
+        run: mv target/${{ matrix.target }}/release/spotix-gui target/${{ matrix.target }}/release/spotix
+
+      - name: Upload Linux Binary
+        uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: spotix-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/spotix
+
+      - name: Upload Windows Executable
+        uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: Spotix.exe
+          path: target/release/spotix-gui.exe
+
+  deb:
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Get full history to count number of commits for package version
+
+      - name: Download Linux Binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: spotix-${{ matrix.target }}
+          path: binaries
+
+      - name: Move Binary
+        run: |
+          mkdir -p pkg/usr/bin/
+          mv binaries/spotix pkg/usr/bin/
+
+      - name: Move Desktop Entry
+        run: mkdir -p pkg/usr/share/applications/; mv .pkg/spotix.desktop pkg/usr/share/applications/
+
+      - name: Add Icons
+        run: |
+          LOGOS=$(cd ./spotix-gui/assets/ && ls logo_*.png)
+          for LOGO in $LOGOS
+          do
+            LOGO_SIZE=$(echo "${LOGO}" | grep -oE '[[:digit:]]{2,}')
+            mkdir -p "pkg/usr/share/icons/hicolor/${LOGO_SIZE}x${LOGO_SIZE}/"
+            cp "./spotix-gui/assets/${LOGO}" "pkg/usr/share/icons/hicolor/${LOGO_SIZE}x${LOGO_SIZE}/spotix.png"
+          done
+          mkdir -p "pkg/usr/share/icons/hicolor/scalable/apps/"
+          cp "./spotix-gui/assets/logo.svg" "pkg/usr/share/icons/hicolor/scalable/apps/spotix.svg"
+
+      - name: Set Permissions
+        run: chmod 755 pkg/usr/bin/spotix
+
+      - name: Move License
+        run: mkdir -p pkg/usr/share/doc/spotix-gui/; mv .pkg/copyright pkg/usr/share/doc/spotix-gui/
+
+      - name: Write Package Config
+        run: |
+          mkdir -p pkg/DEBIAN
+          export ARCHITECTURE=${{ matrix.arch }}
+          SANITIZED_BRANCH="$(echo ${GITHUB_HEAD_REF:+.$GITHUB_HEAD_REF}|tr '_/' '-')"
+          export VERSION=0.1.0"$SANITIZED_BRANCH"+r"$(git rev-list --count HEAD)"-0
+          envsubst < .pkg/DEBIAN/control > pkg/DEBIAN/control
+
+      - name: Build Package
+        run: |
+          cat pkg/DEBIAN/control
+          dpkg-deb -b pkg/ spotix-${{ matrix.arch }}.deb
+
+      - name: Upload Debian Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotix-deb-${{ matrix.arch }}
+          path: "*.deb"
+
+  appimage:
+    if: false # Disable temporarily: https://github.com/skyline69/spotix/actions/runs/3897410142/jobs/6655282029
+    runs-on: ubuntu-latest
+    needs: deb
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Debian Package
+        uses: actions/download-artifact@v4
+        with:
+          name: spotix-deb
+          # Downloads to the root of the workspace by default if path is omitted or '.',
+          # so removing explicit path to ${{github.workspace}}
+
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y libfuse2
+
+      - name: Create Workspace
+        run: mkdir -p appimage
+
+      - name: Download the Latest pkg2appimage
+        run: |
+          latest_release_appimage_url=$(wget -q https://api.github.com/repos/AppImageCommunity/pkg2appimage/releases/latest -O - | jq -r '.assets[0].browser_download_url')
+          wget --directory-prefix=appimage -c $latest_release_appimage_url
+
+      - name: Create Path to pkg2appimage
+        run: |
+          pkg2appimage_executable=$(ls appimage)
+          app_path=appimage/${pkg2appimage_executable}
+          chmod +x ${app_path}
+          echo "app_path=${app_path}" >> $GITHUB_ENV
+
+      - name: Create Path to pkg2appimage's Recipe File
+        run: |
+          recipe_path=spotix/.pkg/APPIMAGE/pkg2appimage-ingredients.yml
+          echo "recipe_path=${recipe_path}" >> $GITHUB_ENV
+
+      - name: Run pkg2appimage
+        run: |
+          ${{env.app_path}} ${{env.recipe_path}}
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotix-appimage
+          path: out/*.AppImage
+
+  release:
+    needs: [build, deb]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Set Version Info and Paths
+        id: set_paths
+        env:
+          FULL_SHA: ${{ github.sha }}
+        run: |
+          echo "BUILD_DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
+          echo "VERSION=0.1.0,$(date +'%Y%m%d.%H%M%S')" >> $GITHUB_ENV
+          SHORT_SHA=${FULL_SHA::7}
+          echo "RELEASE_VERSION=$(date +'%Y.%m.%d')-$SHORT_SHA" >> $GITHUB_ENV
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare Release Body Data
+        id: release_data
+        run: |
+          echo "CURRENT_DATE_STR=$(date)" >> $GITHUB_ENV
+
+      - name: Prepare Release Assets
+        id: prep_assets
+        run: |
+          set -e
+          mkdir -p artifacts_final
+
+          find artifacts -type f -name 'Spotix.dmg' -exec mv {} artifacts_final/Spotix.dmg \;
+          find artifacts -type f -name 'spotix-gui.exe' -exec mv {} artifacts_final/Spotix.exe \;
+          find artifacts -type f -name 'spotix-amd64.deb' -exec mv {} artifacts_final/spotix-amd64.deb \;
+          find artifacts -type f -name 'spotix-arm64.deb' -exec mv {} artifacts_final/spotix-arm64.deb \;
+
+          find artifacts -type f -name 'spotix' -path '*/spotix-x86_64-unknown-linux-gnu/*' -exec mv {} artifacts_final/spotix-linux-x86_64 \;
+          find artifacts -type f -name 'spotix' -path '*/spotix-aarch64-unknown-linux-gnu/*' -exec mv {} artifacts_final/spotix-linux-aarch64 \;
+
+          rm -rf artifacts
+          mv artifacts_final artifacts
+          ls -l artifacts/
+
+      - name: Create Main Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Continuous release (${{ env.RELEASE_VERSION }})
+          tag_name: rolling
+          make_latest: true
+          prerelease: false
+          body: |
+            This is a rolling release of Spotix, published automatically on every commit to main.
+
+            Version: ${{ env.RELEASE_VERSION }}
+            Commit: ${{ github.sha }}
+            Built: ${{ env.CURRENT_DATE_STR }}
+            Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            See the release assets for SHA256 checksums.
+          files: artifacts/*
+          generate_release_notes: false
