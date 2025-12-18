@@ -24,11 +24,9 @@ pub const LOAD_RESULTS: Selector<Arc<RecommendationsRequest>> =
     Selector::new("app.recommend.load-results");
 
 pub fn results_widget() -> impl Widget<AppState> {
-    let track_results = Async::new(
-        utils::spinner_widget,
-        track_results_widget,
-        utils::error_widget,
-    )
+    let track_results = Async::new(utils::spinner_widget, track_results_widget, || {
+        utils::retry_error_widget(LOAD_RESULTS)
+    })
     .lens(
         Ctx::make(
             AppState::common_ctx,

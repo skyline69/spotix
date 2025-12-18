@@ -94,11 +94,9 @@ fn topic_button(label: &str, topic: Option<SearchTopic>) -> impl Widget<AppState
 }
 
 fn async_results_widget() -> impl Widget<AppState> {
-    Async::new(
-        utils::spinner_widget,
-        loaded_results_widget,
-        utils::error_widget,
-    )
+    Async::new(utils::spinner_widget, loaded_results_widget, || {
+        utils::retry_error_widget(LOAD_RESULTS)
+    })
     .lens(
         Ctx::make(AppState::common_ctx, AppState::search.then(Search::results))
             .then(Ctx::in_promise()),

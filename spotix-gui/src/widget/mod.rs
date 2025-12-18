@@ -25,7 +25,7 @@ pub use empty::Empty;
 pub use link::Link;
 pub use maybe::Maybe;
 pub use overlay::Overlay;
-pub use promise::Async;
+pub use promise::{Async, PromiseError};
 pub use remote_image::RemoteImage;
 pub use theme::ThemeScope;
 pub use utils::{Border, Clip, FadeOut, Logger};

@@ -4,12 +4,16 @@ use druid::{Data, Lens, im::Vector};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::data::utils::sanitize_html_string;
-use crate::data::{Image, Promise, Track, TrackId, user::PublicUser};
+use crate::data::{
+    Image, Promise, Track, TrackId,
+    config::{SortCriteria, SortOrder},
+    user::PublicUser,
+};
 
 #[derive(Clone, Debug, Data, Lens)]
 pub struct PlaylistDetail {
     pub playlist: Promise<Playlist, PlaylistLink>,
-    pub tracks: Promise<PlaylistTracks, PlaylistLink>,
+    pub tracks: Promise<PlaylistTracks, (PlaylistLink, SortCriteria, SortOrder)>,
 }
 
 #[derive(Clone, Debug, Data, Lens, Deserialize)]

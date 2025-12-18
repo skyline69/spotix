@@ -16,7 +16,7 @@ use crate::{
 use super::{album, artist, playable, show, theme, track};
 use super::{
     playlist,
-    utils::{error_widget, spinner_widget},
+    utils::{retry_error_widget, spinner_widget},
 };
 
 pub const LOAD_MADE_FOR_YOU: Selector = Selector::new("app.home.load-made-for-your");
@@ -349,7 +349,7 @@ fn user_top_artists_widget() -> impl Widget<AppState> {
     Async::new(
         spinner_widget,
         || Scroll::new(List::new(|| artist::artist_widget(true)).horizontal()).horizontal(),
-        error_widget,
+        || retry_error_widget(LOAD_MADE_FOR_YOU),
     )
     .lens(AppState::home_detail.then(HomeDetail::user_top_artists))
     .on_command_async(
@@ -373,18 +373,20 @@ fn top_tracks_widget() -> impl Widget<WithCtx<Vector<Arc<Track>>>> {
 }
 
 fn user_top_tracks_widget() -> impl Widget<AppState> {
-    Async::new(spinner_widget, top_tracks_widget, error_widget)
-        .lens(
-            Ctx::make(
-                AppState::common_ctx,
-                AppState::home_detail.then(HomeDetail::user_top_tracks),
-            )
-            .then(Ctx::in_promise()),
+    Async::new(spinner_widget, top_tracks_widget, || {
+        retry_error_widget(LOAD_MADE_FOR_YOU)
+    })
+    .lens(
+        Ctx::make(
+            AppState::common_ctx,
+            AppState::home_detail.then(HomeDetail::user_top_tracks),
         )
-        .on_command_async(
-            LOAD_MADE_FOR_YOU,
-            |_| WebApi::global().get_user_top_tracks(),
-            |_, data, d| data.home_detail.user_top_tracks.defer(d),
-            |_, data, r| data.home_detail.user_top_tracks.update(r),
-        )
+        .then(Ctx::in_promise()),
+    )
+    .on_command_async(
+        LOAD_MADE_FOR_YOU,
+        |_| WebApi::global().get_user_top_tracks(),
+        |_, data, d| data.home_detail.user_top_tracks.defer(d),
+        |_, data, r| data.home_detail.user_top_tracks.update(r),
+    )
 }

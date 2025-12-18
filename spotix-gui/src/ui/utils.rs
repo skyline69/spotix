@@ -10,7 +10,11 @@ use druid::{
 };
 use time_humanize::HumanTime;
 
-use crate::{data::WithCtx, error::Error, widget::icons};
+use crate::{
+    data::WithCtx,
+    error::Error,
+    widget::{MyWidgetExt, PromiseError, icons},
+};
 
 use super::theme;
 
@@ -100,7 +104,7 @@ pub fn spinner_widget<T: Data>() -> impl Widget<T> {
     Spinner::new().center()
 }
 
-pub fn error_widget() -> impl Widget<Error> {
+pub fn error_widget<D: Data + Clone>() -> impl Widget<PromiseError<Error, D>> {
     let icon = icons::ERROR
         .scale((theme::grid(3.0), theme::grid(3.0)))
         .with_color(theme::PLACEHOLDER_COLOR);
@@ -112,7 +116,7 @@ pub fn error_widget() -> impl Widget<Error> {
                 .with_text_color(theme::PLACEHOLDER_COLOR),
         )
         .with_child(
-            Label::dynamic(|err: &Error, _| err.to_string())
+            Label::dynamic(|err: &PromiseError<Error, D>, _| err.err.to_string())
                 .with_text_size(theme::TEXT_SIZE_SMALL)
                 .with_text_color(theme::PLACEHOLDER_COLOR),
         );
@@ -122,6 +126,22 @@ pub fn error_widget() -> impl Widget<Error> {
         .with_child(error)
         .padding((0.0, theme::grid(6.0)))
         .center()
+}
+
+pub fn retry_error_widget<D: Data + Clone>(
+    selector: druid::Selector<D>,
+) -> impl Widget<PromiseError<Error, D>> {
+    let retry = Label::new("Retry").link().on_left_click(
+        move |ctx, _, data: &mut PromiseError<Error, D>, _| {
+            ctx.submit_command(selector.with(data.def.clone()));
+        },
+    );
+
+    Flex::column()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .with_child(error_widget())
+        .with_spacer(theme::grid(0.5))
+        .with_child(retry)
 }
 
 pub fn as_minutes_and_seconds(dur: Duration) -> String {

@@ -468,9 +468,11 @@ fn account_tab_widget(tab: AccountTab) -> impl Widget<AppState> {
                 || SizedBox::empty().boxed(),
                 || {
                     // Error arm remains the same
-                    Label::dynamic(|err: &String, _| err.to_owned())
-                        .with_text_size(theme::TEXT_SIZE_SMALL)
-                        .with_text_color(druid::Color::RED)
+                    Label::dynamic(|err: &crate::widget::PromiseError<String, ()>, _| {
+                        err.err.to_owned()
+                    })
+                    .with_text_size(theme::TEXT_SIZE_SMALL)
+                    .with_text_color(druid::Color::RED)
                 },
             )
             .lens(

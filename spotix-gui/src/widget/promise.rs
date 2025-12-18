@@ -2,22 +2,28 @@ use druid::{Data, Point, WidgetExt, WidgetPod, widget::prelude::*};
 
 use crate::data::{Promise, PromiseState};
 
-pub struct Async<T, D, E> {
+#[derive(Clone, Data)]
+pub struct PromiseError<E: Data, D: Data> {
+    pub err: E,
+    pub def: D,
+}
+
+pub struct Async<T, D: Data + Clone, E: Data + Clone> {
     def_maker: Box<dyn Fn() -> Box<dyn Widget<D>>>,
     res_maker: Box<dyn Fn() -> Box<dyn Widget<T>>>,
-    err_maker: Box<dyn Fn() -> Box<dyn Widget<E>>>,
+    err_maker: Box<dyn Fn() -> Box<dyn Widget<PromiseError<E, D>>>>,
     widget: PromiseWidget<T, D, E>,
 }
 
 #[allow(clippy::large_enum_variant)]
-enum PromiseWidget<T, D, E> {
+enum PromiseWidget<T, D: Data + Clone, E: Data + Clone> {
     Empty,
     Deferred(WidgetPod<D, Box<dyn Widget<D>>>),
     Resolved(WidgetPod<T, Box<dyn Widget<T>>>),
-    Rejected(WidgetPod<E, Box<dyn Widget<E>>>),
+    Rejected(WidgetPod<PromiseError<E, D>, Box<dyn Widget<PromiseError<E, D>>>>),
 }
 
-impl<D: Data, T: Data, E: Data> Async<T, D, E> {
+impl<D: Data + Clone, T: Data, E: Data + Clone> Async<T, D, E> {
     pub fn new<WD, WT, WE>(
         def_maker: impl Fn() -> WD + 'static,
         res_maker: impl Fn() -> WT + 'static,
@@ -26,7 +32,7 @@ impl<D: Data, T: Data, E: Data> Async<T, D, E> {
     where
         WD: Widget<D> + 'static,
         WT: Widget<T> + 'static,
-        WE: Widget<E> + 'static,
+        WE: Widget<PromiseError<E, D>> + 'static,
     {
         Self {
             def_maker: Box::new(move || def_maker().boxed()),
@@ -46,7 +52,7 @@ impl<D: Data, T: Data, E: Data> Async<T, D, E> {
     }
 }
 
-impl<D: Data, T: Data, E: Data> Widget<Promise<T, D, E>> for Async<T, D, E> {
+impl<D: Data + Clone, T: Data, E: Data + Clone> Widget<Promise<T, D, E>> for Async<T, D, E> {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut Promise<T, D, E>, env: &Env) {
         if data.state() == self.widget.state() {
             match data {
@@ -57,8 +63,14 @@ impl<D: Data, T: Data, E: Data> Widget<Promise<T, D, E>> for Async<T, D, E> {
                 Promise::Resolved { val, .. } => {
                     self.widget.with_resolved(|w| w.event(ctx, event, val, env));
                 }
-                Promise::Rejected { err, .. } => {
-                    self.widget.with_rejected(|w| w.event(ctx, event, err, env));
+                Promise::Rejected { err, def } => {
+                    self.widget.with_rejected(|w| {
+                        let mut payload = PromiseError {
+                            err: err.to_owned(),
+                            def: def.to_owned(),
+                        };
+                        w.event(ctx, event, &mut payload, env)
+                    });
                 }
             };
         }
@@ -87,9 +99,14 @@ impl<D: Data, T: Data, E: Data> Widget<Promise<T, D, E>> for Async<T, D, E> {
                 self.widget
                     .with_resolved(|w| w.lifecycle(ctx, event, val, env));
             }
-            Promise::Rejected { err, .. } => {
-                self.widget
-                    .with_rejected(|w| w.lifecycle(ctx, event, err, env));
+            Promise::Rejected { err, def } => {
+                self.widget.with_rejected(|w| {
+                    let payload = PromiseError {
+                        err: err.to_owned(),
+                        def: def.to_owned(),
+                    };
+                    w.lifecycle(ctx, event, &payload, env)
+                });
             }
         };
     }
@@ -113,8 +130,12 @@ impl<D: Data, T: Data, E: Data> Widget<Promise<T, D, E>> for Async<T, D, E> {
                 Promise::Resolved { val, .. } => {
                     self.widget.with_resolved(|w| w.update(ctx, val, env));
                 }
-                Promise::Rejected { err, .. } => {
-                    self.widget.with_rejected(|w| w.update(ctx, err, env));
+                Promise::Rejected { err, def } => {
+                    let payload = PromiseError {
+                        err: err.to_owned(),
+                        def: def.to_owned(),
+                    };
+                    self.widget.with_rejected(|w| w.update(ctx, &payload, env));
                 }
             };
         }
@@ -139,8 +160,12 @@ impl<D: Data, T: Data, E: Data> Widget<Promise<T, D, E>> for Async<T, D, E> {
                 w.set_origin(ctx, Point::ORIGIN);
                 size
             }),
-            Promise::Rejected { err, .. } => self.widget.with_rejected(|w| {
-                let size = w.layout(ctx, bc, err, env);
+            Promise::Rejected { err, def } => self.widget.with_rejected(|w| {
+                let payload = PromiseError {
+                    err: err.to_owned(),
+                    def: def.to_owned(),
+                };
+                let size = w.layout(ctx, bc, &payload, env);
                 w.set_origin(ctx, Point::ORIGIN);
                 size
             }),
@@ -157,14 +182,18 @@ impl<D: Data, T: Data, E: Data> Widget<Promise<T, D, E>> for Async<T, D, E> {
             Promise::Resolved { val, .. } => {
                 self.widget.with_resolved(|w| w.paint(ctx, val, env));
             }
-            Promise::Rejected { err, .. } => {
-                self.widget.with_rejected(|w| w.paint(ctx, err, env));
+            Promise::Rejected { err, def } => {
+                let payload = PromiseError {
+                    err: err.to_owned(),
+                    def: def.to_owned(),
+                };
+                self.widget.with_rejected(|w| w.paint(ctx, &payload, env));
             }
         };
     }
 }
 
-impl<T, D, E> PromiseWidget<T, D, E> {
+impl<T, D: Data + Clone, E: Data + Clone> PromiseWidget<T, D, E> {
     fn state(&self) -> PromiseState {
         match self {
             Self::Empty => PromiseState::Empty,
@@ -196,7 +225,10 @@ impl<T, D, E> PromiseWidget<T, D, E> {
         }
     }
 
-    fn with_rejected<R, F: FnOnce(&mut WidgetPod<E, Box<dyn Widget<E>>>) -> R>(
+    fn with_rejected<
+        R,
+        F: FnOnce(&mut WidgetPod<PromiseError<E, D>, Box<dyn Widget<PromiseError<E, D>>>>) -> R,
+    >(
         &mut self,
         f: F,
     ) -> Option<R> {

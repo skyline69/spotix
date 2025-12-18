@@ -24,7 +24,7 @@ use crate::{
 use super::{playable, theme, track, utils};
 
 pub const LOAD_LIST: Selector = Selector::new("app.playlist.load-list");
-pub const LOAD_DETAIL: Selector<(PlaylistLink, AppState)> =
+pub const LOAD_DETAIL: Selector<(PlaylistLink, SortCriteria, SortOrder)> =
     Selector::new("app.playlist.load-detail");
 pub const ADD_TRACK: Selector<PlaylistAddTrack> = Selector::new("app.playlist.add-track");
 pub const REMOVE_TRACK: Selector<PlaylistRemoveTrack> = Selector::new("app.playlist.remove-track");
@@ -63,7 +63,7 @@ pub fn list_widget() -> impl Widget<AppState> {
                     .context_menu(playlist_menu_ctx)
             })
         },
-        utils::error_widget,
+        || utils::retry_error_widget(LOAD_LIST),
     )
     .lens(
         Ctx::make(
@@ -157,7 +157,11 @@ pub fn list_widget() -> impl Widget<AppState> {
                 data.info_alert("Removed from playlist.");
             }
             // Re-submit the `LOAD_DETAIL` command to reload the playlist data.
-            e.submit_command(LOAD_DETAIL.with((p.link, data.clone())))
+            e.submit_command(LOAD_DETAIL.with((
+                p.link,
+                data.config.sort_criteria,
+                data.config.sort_order,
+            )))
         },
     )
 }
@@ -498,31 +502,37 @@ fn playlist_info_widget() -> impl Widget<WithCtx<Playlist>> {
 }
 
 fn async_tracks_widget() -> impl Widget<AppState> {
-    Async::new(utils::spinner_widget, tracks_widget, utils::error_widget)
-        .lens(
-            Ctx::make(
-                AppState::common_ctx,
-                AppState::playlist_detail.then(PlaylistDetail::tracks),
-            )
-            .then(Ctx::in_promise()),
+    Async::new(utils::spinner_widget, tracks_widget, || {
+        utils::retry_error_widget(LOAD_DETAIL)
+    })
+    .lens(
+        Ctx::make(
+            AppState::common_ctx,
+            AppState::playlist_detail.then(PlaylistDetail::tracks),
         )
-        .on_command_async(
-            LOAD_DETAIL,
-            |arg: (PlaylistLink, AppState)| {
-                let d = arg.0;
-                let data = arg.1;
-                sort_playlist(&data, WebApi::global().get_playlist_tracks(&d.id))
-            },
-            |_, data, d| data.playlist_detail.tracks.defer(d.0),
-            |_, data, (d, r)| {
-                let tracks = PlaylistTracks {
-                    id: d.0.id.clone(),
-                    name: d.0.name.clone(),
-                    tracks: r,
-                };
-                data.playlist_detail.tracks.update((d.0, Ok(tracks)))
-            },
-        )
+        .then(Ctx::in_promise()),
+    )
+    .on_command_async(
+        LOAD_DETAIL,
+        |(link, criteria, order): (PlaylistLink, SortCriteria, SortOrder)| {
+            let tracks = sort_playlist(
+                criteria,
+                order,
+                WebApi::global().get_playlist_tracks(&link.id),
+            );
+            tracks
+        },
+        |_, data, d| data.playlist_detail.tracks.defer(d.clone()),
+        |_, data, (def, tracks)| {
+            let (link, _, _) = def.clone();
+            let tracks = PlaylistTracks {
+                id: link.id.clone(),
+                name: link.name.clone(),
+                tracks,
+            };
+            data.playlist_detail.tracks.update((def, Ok(tracks)));
+        },
+    )
 }
 
 fn tracks_widget() -> impl Widget<WithCtx<PlaylistTracks>> {
@@ -540,10 +550,11 @@ fn tracks_widget() -> impl Widget<WithCtx<PlaylistTracks>> {
     )
 }
 
-fn sort_playlist(data: &AppState, result: Result<Vector<Arc<Track>>, Error>) -> Vector<Arc<Track>> {
-    let sort_criteria = data.config.sort_criteria;
-    let sort_order = data.config.sort_order;
-
+fn sort_playlist(
+    sort_criteria: SortCriteria,
+    sort_order: SortOrder,
+    result: Result<Vector<Arc<Track>>, Error>,
+) -> Vector<Arc<Track>> {
     let playlist = result.unwrap_or_else(|_| Vector::new());
 
     let sorted_playlist: Vector<Arc<Track>> = playlist

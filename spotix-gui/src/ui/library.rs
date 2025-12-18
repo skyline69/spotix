@@ -48,7 +48,7 @@ pub fn saved_tracks_widget() -> impl Widget<AppState> {
                 cmd::FIND_IN_SAVED_TRACKS,
             )
         },
-        utils::error_widget,
+        || utils::retry_error_widget(LOAD_TRACKS),
     )
     .lens(
         Ctx::make(
@@ -109,7 +109,7 @@ pub fn saved_albums_widget() -> impl Widget<AppState> {
     Async::new(
         utils::spinner_widget,
         || List::new(|| album::album_widget(false)).lens(Ctx::map(SavedAlbums::albums)),
-        utils::error_widget,
+        || utils::retry_error_widget(LOAD_ALBUMS),
     )
     .lens(
         Ctx::make(

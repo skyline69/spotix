@@ -22,11 +22,9 @@ pub const LOAD_DETAIL: Selector<AlbumLink> = Selector::new("app.album.load-detai
 pub const REFRESH_DETAIL: Selector<AlbumLink> = Selector::new("app.album.refresh-detail");
 
 pub fn detail_widget() -> impl Widget<AppState> {
-    Async::new(
-        utils::spinner_widget,
-        loaded_detail_widget,
-        utils::error_widget,
-    )
+    Async::new(utils::spinner_widget, loaded_detail_widget, || {
+        utils::retry_error_widget(LOAD_DETAIL)
+    })
     .lens(
         Ctx::make(
             AppState::common_ctx,

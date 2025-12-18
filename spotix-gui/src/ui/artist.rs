@@ -34,11 +34,9 @@ pub fn detail_widget() -> impl Widget<AppState> {
 }
 
 fn async_top_tracks_widget() -> impl Widget<AppState> {
-    Async::new(
-        utils::spinner_widget,
-        top_tracks_widget,
-        utils::error_widget,
-    )
+    Async::new(utils::spinner_widget, top_tracks_widget, || {
+        utils::retry_error_widget(LOAD_DETAIL)
+    })
     .lens(
         Ctx::make(
             AppState::common_ctx,
@@ -75,66 +73,72 @@ fn async_top_tracks_widget() -> impl Widget<AppState> {
 }
 
 fn async_albums_widget() -> impl Widget<AppState> {
-    Async::new(utils::spinner_widget, albums_widget, utils::error_widget)
-        .lens(
-            Ctx::make(
-                AppState::common_ctx,
-                AppState::artist_detail.then(ArtistDetail::albums),
-            )
-            .then(Ctx::in_promise()),
+    Async::new(utils::spinner_widget, albums_widget, || {
+        utils::retry_error_widget(LOAD_DETAIL)
+    })
+    .lens(
+        Ctx::make(
+            AppState::common_ctx,
+            AppState::artist_detail.then(ArtistDetail::albums),
         )
-        .on_command_async(
-            LOAD_DETAIL,
-            |d| WebApi::global().get_artist_albums(&d.id),
-            |_, data, d| data.artist_detail.albums.defer(d),
-            |_, data, r| data.artist_detail.albums.update(r),
-        )
-        .on_command_async(
-            REFRESH_DETAIL,
-            |d| WebApi::global().refresh_artist_albums(&d.id),
-            |_, data, d| data.artist_detail.albums.defer(d),
-            |_, data, r| data.artist_detail.albums.update(r),
-        )
+        .then(Ctx::in_promise()),
+    )
+    .on_command_async(
+        LOAD_DETAIL,
+        |d| WebApi::global().get_artist_albums(&d.id),
+        |_, data, d| data.artist_detail.albums.defer(d),
+        |_, data, r| data.artist_detail.albums.update(r),
+    )
+    .on_command_async(
+        REFRESH_DETAIL,
+        |d| WebApi::global().refresh_artist_albums(&d.id),
+        |_, data, d| data.artist_detail.albums.defer(d),
+        |_, data, r| data.artist_detail.albums.update(r),
+    )
 }
 
 fn async_artist_info() -> impl Widget<AppState> {
-    Async::new(utils::spinner_widget, artist_info_widget, || Empty)
-        .lens(
-            Ctx::make(
-                AppState::common_ctx,
-                AppState::artist_detail.then(ArtistDetail::artist_info),
-            )
-            .then(Ctx::in_promise()),
+    Async::new(utils::spinner_widget, artist_info_widget, || {
+        utils::retry_error_widget(LOAD_DETAIL)
+    })
+    .lens(
+        Ctx::make(
+            AppState::common_ctx,
+            AppState::artist_detail.then(ArtistDetail::artist_info),
         )
-        .on_command_async(
-            LOAD_DETAIL,
-            |d| WebApi::global().get_artist_info(&d.id),
-            |_, data, d| data.artist_detail.artist_info.defer(d),
-            |_, data, r| data.artist_detail.artist_info.update(r),
-        )
-        .on_command_async(
-            REFRESH_DETAIL,
-            |d| WebApi::global().refresh_artist_info(&d.id),
-            |_, data, d| data.artist_detail.artist_info.defer(d),
-            |_, data, r| data.artist_detail.artist_info.update(r),
-        )
+        .then(Ctx::in_promise()),
+    )
+    .on_command_async(
+        LOAD_DETAIL,
+        |d| WebApi::global().get_artist_info(&d.id),
+        |_, data, d| data.artist_detail.artist_info.defer(d),
+        |_, data, r| data.artist_detail.artist_info.update(r),
+    )
+    .on_command_async(
+        REFRESH_DETAIL,
+        |d| WebApi::global().refresh_artist_info(&d.id),
+        |_, data, d| data.artist_detail.artist_info.defer(d),
+        |_, data, r| data.artist_detail.artist_info.update(r),
+    )
 }
 
 fn async_related_widget() -> impl Widget<AppState> {
-    Async::new(utils::spinner_widget, related_widget, utils::error_widget)
-        .lens(AppState::artist_detail.then(ArtistDetail::related_artists))
-        .on_command_async(
-            LOAD_DETAIL,
-            |d| WebApi::global().get_related_artists(&d.id),
-            |_, data, d| data.artist_detail.related_artists.defer(d),
-            |_, data, r| data.artist_detail.related_artists.update(r),
-        )
-        .on_command_async(
-            REFRESH_DETAIL,
-            |d| WebApi::global().refresh_related_artists(&d.id),
-            |_, data, d| data.artist_detail.related_artists.defer(d),
-            |_, data, r| data.artist_detail.related_artists.update(r),
-        )
+    Async::new(utils::spinner_widget, related_widget, || {
+        utils::retry_error_widget(LOAD_DETAIL)
+    })
+    .lens(AppState::artist_detail.then(ArtistDetail::related_artists))
+    .on_command_async(
+        LOAD_DETAIL,
+        |d| WebApi::global().get_related_artists(&d.id),
+        |_, data, d| data.artist_detail.related_artists.defer(d),
+        |_, data, r| data.artist_detail.related_artists.update(r),
+    )
+    .on_command_async(
+        REFRESH_DETAIL,
+        |d| WebApi::global().refresh_related_artists(&d.id),
+        |_, data, d| data.artist_detail.related_artists.defer(d),
+        |_, data, r| data.artist_detail.related_artists.update(r),
+    )
 }
 
 pub fn artist_widget(horizontal: bool) -> impl Widget<Artist> {
