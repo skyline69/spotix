@@ -79,6 +79,9 @@ pub const LOAD_TRACK_CREDITS: Selector<Arc<Track>> = Selector::new("app.credits-
 // Artwork
 pub const SHOW_ARTWORK: Selector = Selector::new("app.show-artwork");
 
+// Volume
+pub const SAVE_VOLUME: Selector = Selector::new("app.save-volume");
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RestoreSnapshot {
     pub id: String,

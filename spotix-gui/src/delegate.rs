@@ -155,6 +155,10 @@ impl AppDelegate<AppState> for Delegate {
         } else if cmd.is(cmd::SHOW_ACCOUNT_SETUP) {
             self.show_account_setup(ctx);
             Handled::Yes
+        } else if cmd.is(cmd::SAVE_VOLUME) {
+            data.config.volume = data.playback.volume;
+            data.config.save();
+            Handled::Yes
         } else if cmd.is(commands::SHOW_PREFERENCES) {
             self.show_preferences(ctx);
             Handled::Yes

@@ -458,7 +458,6 @@ fn sidebar_link_widget(
 
 fn volume_slider() -> impl Widget<AppState> {
     const SAVE_DELAY: Duration = Duration::from_millis(100);
-    const SAVE_TO_CONFIG: Selector = Selector::new("app.volume.save-to-config");
 
     Flex::row()
         .with_flex_child(
@@ -481,7 +480,7 @@ fn volume_slider() -> impl Widget<AppState> {
                 .fix_width(theme::grid(4.0)),
         )
         .padding((theme::grid(2.0), 0.0))
-        .on_debounce(SAVE_DELAY, |ctx, _, _| ctx.submit_command(SAVE_TO_CONFIG))
+        .on_debounce(SAVE_DELAY, |ctx, _, _| ctx.submit_command(cmd::SAVE_VOLUME))
         .lens(AppState::playback.then(Playback::volume))
         .on_scroll(
             |data| &data.config.slider_scroll_scale,
