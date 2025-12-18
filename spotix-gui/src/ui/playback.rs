@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use druid::{
     BoxConstraints, Cursor, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx,
@@ -383,18 +383,32 @@ where
 
 struct SeekBar {
     loudness_path: BezPath,
+    base_progress: Duration,
+    last_tick: Option<Instant>,
 }
 
 impl SeekBar {
     fn new() -> Self {
         Self {
             loudness_path: BezPath::new(),
+            base_progress: Duration::ZERO,
+            last_tick: None,
         }
+    }
+
+    fn current_progress(&self, data: &NowPlaying) -> Duration {
+        let mut progress = self.base_progress;
+        if data.is_playing {
+            if let Some(last_tick) = self.last_tick {
+                progress = progress.saturating_add(last_tick.elapsed());
+            }
+        }
+        progress.min(data.item.duration())
     }
 }
 
 impl Widget<NowPlaying> for SeekBar {
-    fn event(&mut self, ctx: &mut EventCtx, event: &Event, _data: &mut NowPlaying, _env: &Env) {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut NowPlaying, _env: &Env) {
         match event {
             Event::MouseMove(_) => {
                 ctx.set_cursor(&Cursor::Pointer);
@@ -411,6 +425,12 @@ impl Widget<NowPlaying> for SeekBar {
                         ctx.submit_command(cmd::PLAY_SEEK.with(fraction));
                     }
                     ctx.set_active(false);
+                }
+            }
+            Event::AnimFrame(_) => {
+                if data.is_playing {
+                    ctx.request_paint();
+                    ctx.request_anim_frame();
                 }
             }
             _ => {}
@@ -443,7 +463,17 @@ impl Widget<NowPlaying> for SeekBar {
         _env: &Env,
     ) {
         if !old_data.same(data) {
+            self.base_progress = data.progress;
+            self.last_tick = data.is_playing.then_some(Instant::now());
+            if data.is_playing {
+                ctx.request_anim_frame();
+            }
             ctx.request_paint();
+        } else if data.is_playing {
+            // Keep animating while playing.
+            ctx.request_anim_frame();
+        } else {
+            self.last_tick = None;
         }
     }
 
@@ -458,10 +488,11 @@ impl Widget<NowPlaying> for SeekBar {
     }
 
     fn paint(&mut self, ctx: &mut PaintCtx, data: &NowPlaying, env: &Env) {
+        let progress = self.current_progress(data);
         if self.loudness_path.is_empty() {
-            paint_progress_bar(ctx, data, env)
+            paint_progress_bar(ctx, data, env, progress)
         } else {
-            paint_audio_analysis(ctx, data, &self.loudness_path, env)
+            paint_audio_analysis(ctx, data, &self.loudness_path, env, progress)
         }
     }
 }
@@ -527,10 +558,16 @@ fn _compute_loudness_path_from_analysis(
     path
 }
 
-fn paint_audio_analysis(ctx: &mut PaintCtx, data: &NowPlaying, path: &BezPath, env: &Env) {
+fn paint_audio_analysis(
+    ctx: &mut PaintCtx,
+    data: &NowPlaying,
+    path: &BezPath,
+    env: &Env,
+    progress: Duration,
+) {
     let bounds = ctx.size();
 
-    let elapsed_time = data.progress.as_secs_f64();
+    let elapsed_time = progress.as_secs_f64();
     let total_time = data.item.duration().as_secs_f64();
     let elapsed_frac = elapsed_time / total_time;
     let elapsed_width = bounds.width * elapsed_frac;
@@ -549,8 +586,8 @@ fn paint_audio_analysis(ctx: &mut PaintCtx, data: &NowPlaying, path: &BezPath, e
     });
 }
 
-fn paint_progress_bar(ctx: &mut PaintCtx, data: &NowPlaying, env: &Env) {
-    let elapsed_time = data.progress.as_secs_f64();
+fn paint_progress_bar(ctx: &mut PaintCtx, data: &NowPlaying, env: &Env, progress: Duration) {
+    let elapsed_time = progress.as_secs_f64();
     let total_time = data.item.duration().as_secs_f64();
 
     let (elapsed_color, remaining_color) = if ctx.is_hot() {

@@ -93,6 +93,7 @@ pub struct NowPlaying {
     pub item: Playable,
     pub origin: PlaybackOrigin,
     pub progress: Duration,
+    pub is_playing: bool,
 
     // Although keeping a ref to the `Library` here is a bit of a hack, it dramatically
     // simplifies displaying the track context menu in the playback bar.

@@ -253,6 +253,7 @@ impl AppState {
             item,
             origin,
             progress: Duration::default(),
+            is_playing: false,
             library: Arc::clone(&self.library),
         });
     }
@@ -264,6 +265,7 @@ impl AppState {
             item,
             origin,
             progress,
+            is_playing: true,
             library: Arc::clone(&self.library),
         });
     }
@@ -276,10 +278,16 @@ impl AppState {
 
     pub fn pause_playback(&mut self) {
         self.playback.state = PlaybackState::Paused;
+        if let Some(now_playing) = &mut self.playback.now_playing {
+            now_playing.is_playing = false;
+        }
     }
 
     pub fn resume_playback(&mut self) {
         self.playback.state = PlaybackState::Playing;
+        if let Some(now_playing) = &mut self.playback.now_playing {
+            now_playing.is_playing = true;
+        }
     }
 
     pub fn block_playback(&mut self) {
