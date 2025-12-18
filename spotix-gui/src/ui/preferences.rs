@@ -861,6 +861,7 @@ impl<W: Widget<AppState>> Controller<AppState, W> for Authenticate {
 fn cache_tab_widget() -> impl Widget<AppState> {
     let mut col = Flex::column().cross_axis_alignment(CrossAxisAlignment::Start);
 
+    // Location
     col = col
         .with_child(Label::new("Location").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(2.0))
@@ -871,11 +872,12 @@ fn cache_tab_widget() -> impl Widget<AppState> {
                     .unwrap_or_else(|| "None".to_string())
             })
             .with_line_break_mode(LineBreaking::WordWrap),
-        );
+        )
+        .with_spacer(theme::grid(3.0));
 
-    col = col.with_spacer(theme::grid(3.0));
-
-    col = col
+    // Size + utilization + clear button (Preferences lens)
+    let mut usage = Flex::column().cross_axis_alignment(CrossAxisAlignment::Start);
+    usage = usage
         .with_child(Label::new("Size").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(2.0))
         .with_child(Label::dynamic(
@@ -884,10 +886,7 @@ fn cache_tab_widget() -> impl Widget<AppState> {
                 Promise::Deferred { .. } => "Computing...".to_string(),
                 Promise::Resolved { val, .. } => format_cache_total(val),
             },
-        ));
-
-    // Clear cache button
-    col = col
+        ))
         .with_spacer(theme::grid(2.0))
         .with_child(Label::new("Utilization").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(1.5))
@@ -910,9 +909,46 @@ fn cache_tab_widget() -> impl Widget<AppState> {
         .with_child(Button::new("Clear Cache").on_left_click(|ctx, _, _, _| {
             ctx.submit_command(CLEAR_CACHE);
         }));
+    col = col.with_child(
+        usage
+            .controller(CacheController::new())
+            .lens(AppState::preferences),
+    );
 
-    col.controller(CacheController::new())
-        .lens(AppState::preferences)
+    col = col.with_spacer(theme::grid(3.0));
+
+    // Audio cache limit control (Config lens)
+    col = col
+        .with_child(Label::new("Audio Cache Limit").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(1.0))
+        .with_child(
+            Flex::row()
+                .with_flex_child(
+                    Slider::new()
+                        .with_range(0.0, 10240.0)
+                        .with_step(64.0)
+                        .lens(AppState::config.then(Config::audio_cache_limit_mb))
+                        .expand_width(),
+                    1.0,
+                )
+                .with_spacer(theme::grid(1.0))
+                .with_child(Label::dynamic(|data: &AppState, _| {
+                    let mb = data.config.audio_cache_limit_mb;
+                    if mb <= 0.0 {
+                        "Unlimited".to_string()
+                    } else {
+                        format!("{mb:.0} MB")
+                    }
+                })),
+        )
+        .with_spacer(theme::grid(0.5))
+        .with_child(
+            Label::new("0 = Unlimited")
+                .with_text_size(theme::TEXT_SIZE_SMALL)
+                .with_text_color(theme::PLACEHOLDER_COLOR),
+        );
+
+    col
 }
 
 fn cache_usage_row(

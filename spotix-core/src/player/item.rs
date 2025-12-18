@@ -48,7 +48,7 @@ impl PlaybackItem {
             }
             _ => {
                 let key = load_audio_key(&path, session, &cache)?;
-                let file = MediaFile::open(path, cdn, cache)?;
+                let file = MediaFile::open(path, cdn, cache, config.audio_cache_limit)?;
                 let (source, norm_data) = file.remote_audio_source(key)?;
                 (file, source, norm_data)
             }

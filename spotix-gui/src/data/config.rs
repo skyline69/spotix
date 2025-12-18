@@ -161,6 +161,8 @@ pub struct Config {
     pub sort_criteria: SortCriteria,
     pub paginated_limit: usize,
     pub seek_duration: usize,
+    /// Audio cache limit in megabytes. 0 = unlimited.
+    pub audio_cache_limit_mb: f64,
     pub lastfm_session_key: Option<String>,
     pub lastfm_api_key: Option<String>,
     pub lastfm_api_secret: Option<String>,
@@ -183,6 +185,7 @@ impl Default for Config {
             sort_criteria: Default::default(),
             paginated_limit: 500,
             seek_duration: 10,
+            audio_cache_limit_mb: 4096.0,
             lastfm_session_key: None,
             lastfm_api_key: None,
             lastfm_api_secret: None,
@@ -281,6 +284,11 @@ impl Config {
     pub fn playback(&self) -> PlaybackConfig {
         PlaybackConfig {
             bitrate: self.audio_quality.as_bitrate(),
+            audio_cache_limit: if self.audio_cache_limit_mb <= 0.0 {
+                None
+            } else {
+                Some((self.audio_cache_limit_mb * 1024.0 * 1024.0) as u64)
+            },
             ..PlaybackConfig::default()
         }
     }

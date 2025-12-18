@@ -108,6 +108,14 @@ impl StreamStorage {
     pub fn path(&self) -> &Path {
         self.file.path()
     }
+
+    pub fn is_complete(&self) -> bool {
+        self.data_map.is_complete()
+    }
+
+    pub fn gaps(&self) -> Vec<(u64, u64)> {
+        self.data_map.gaps()
+    }
 }
 
 enum StreamFile {
@@ -249,6 +257,8 @@ impl StreamDataMap {
     /// currently blocked in `self.wait_for` are woken up.
     fn mark_as_downloaded(&self, offset: u64, length: u64) {
         self.downloaded.lock().insert(offset..offset + length);
+        // Keep requested in sync so we do not schedule already downloaded ranges again.
+        self.requested.lock().insert(offset..offset + length);
         self.condvar.notify_all();
     }
 
@@ -283,6 +293,15 @@ impl StreamDataMap {
             .gaps(&(0..self.total_size))
             .next()
             .is_none()
+    }
+
+    /// Return the gaps in the downloaded data across the whole file.
+    fn gaps(&self) -> Vec<(u64, u64)> {
+        self.downloaded
+            .lock()
+            .gaps(&(0..self.total_size))
+            .map(|r| range_to_offset_and_length(&r))
+            .collect()
     }
 }
 

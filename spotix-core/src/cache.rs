@@ -131,6 +131,38 @@ impl Cache {
         fs::copy(from_path, self.audio_file_path(file_id))?;
         Ok(())
     }
+
+    /// Ensure the audio cache stays under `limit_bytes` by removing the oldest files first.
+    pub fn enforce_audio_limit(&self, limit_bytes: u64) -> io::Result<()> {
+        if limit_bytes == 0 {
+            return Ok(()); // 0 means unlimited
+        }
+
+        let audio_dir = self.base.join("audio");
+        let mut entries = Vec::new();
+        for entry in fs::read_dir(&audio_dir)? {
+            let entry = entry?;
+            let meta = entry.metadata()?;
+            if !meta.is_file() {
+                continue;
+            }
+            let modified = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+            entries.push((entry.path(), meta.len(), modified));
+        }
+
+        // Oldest first by modified time.
+        entries.sort_by_key(|(_, _, modified)| *modified);
+        let mut total: u64 = entries.iter().map(|(_, size, _)| *size).sum();
+        for (path, size, _) in entries {
+            if total <= limit_bytes {
+                break;
+            }
+            let _ = fs::remove_file(&path);
+            total = total.saturating_sub(size);
+        }
+
+        Ok(())
+    }
 }
 
 // Cache of user country code.

@@ -115,13 +115,18 @@ impl MediaFile {
         }
     }
 
-    pub fn open(path: MediaPath, cdn: CdnHandle, cache: CacheHandle) -> Result<Self, Error> {
+    pub fn open(
+        path: MediaPath,
+        cdn: CdnHandle,
+        cache: CacheHandle,
+        audio_cache_limit: Option<u64>,
+    ) -> Result<Self, Error> {
         let cached_path = cache.audio_file_path(path.file_id);
         if cached_path.exists() {
             let cached_file = CachedFile::open(path, cached_path)?;
             Ok(Self::Cached { cached_file })
         } else {
-            let streamed_file = Arc::new(StreamedFile::open(path, cdn, cache)?);
+            let streamed_file = Arc::new(StreamedFile::open(path, cdn, cache, audio_cache_limit)?);
             let servicing_handle = thread::spawn({
                 let streamed_file = Arc::clone(&streamed_file);
                 move || {
@@ -202,10 +207,16 @@ pub struct StreamedFile {
     url: CdnUrl,
     cdn: CdnHandle,
     cache: CacheHandle,
+    audio_cache_limit: Option<u64>,
 }
 
 impl StreamedFile {
-    fn open(path: MediaPath, cdn: CdnHandle, cache: CacheHandle) -> Result<StreamedFile, Error> {
+    fn open(
+        path: MediaPath,
+        cdn: CdnHandle,
+        cache: CacheHandle,
+        audio_cache_limit: Option<u64>,
+    ) -> Result<StreamedFile, Error> {
         // First, we need to resolve URL of the file contents.
         let url = cdn.resolve_audio_file_url(path.file_id)?;
         log::debug!("resolved file URL: {:?}", url.url);
@@ -229,6 +240,7 @@ impl StreamedFile {
             url,
             cdn,
             cache,
+            audio_cache_limit,
         })
     }
 
@@ -278,17 +290,34 @@ impl StreamedFile {
             Ok(())
         };
 
-        while let Ok(req) = self.storage.receiver().recv() {
-            match req {
-                StreamRequest::Preload { offset, length } => {
+        // Keep servicing until the channel is closed or goes idle for a moment.
+        use crossbeam_channel::RecvTimeoutError;
+        loop {
+            match self
+                .storage
+                .receiver()
+                .recv_timeout(Duration::from_millis(500))
+            {
+                Ok(StreamRequest::Preload { offset, length }) => {
                     if let Err(err) = download_range(offset, length) {
                         log::error!("failed to request audio range: {err:?}");
                     }
                 }
-                StreamRequest::Blocked { offset } => {
+                Ok(StreamRequest::Blocked { offset }) => {
                     log::info!("blocked at {offset}");
                 }
+                Err(RecvTimeoutError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {
+                    // Idle: try to finalize what we have and exit.
+                    break;
+                }
             }
+        }
+
+        // No more requests are coming; best-effort fetch any remaining gaps so the
+        // audio file can be persisted to cache.
+        if let Err(err) = self.finish_and_cache(&mut fresh_url) {
+            log::warn!("failed to finalize audio cache: {err:?}");
         }
         Ok(())
     }
@@ -327,4 +356,38 @@ fn load_range(
     io::copy(&mut reader, writer)?;
 
     Ok(())
+}
+
+impl StreamedFile {
+    /// Download any missing ranges synchronously and persist the completed file to cache.
+    fn finish_and_cache(
+        &self,
+        fresh_url: &mut impl FnMut() -> Result<CdnUrl, Error>,
+    ) -> Result<(), Error> {
+        let mut writer = self.storage.writer()?;
+
+        for (offset, length) in self.storage.gaps() {
+            if length == 0 {
+                continue;
+            }
+            let url = fresh_url()?.url;
+            load_range(&mut writer, &self.cdn, &url, offset, length)?;
+        }
+
+        if self.storage.is_complete() && !self.cache.audio_file_path(self.path.file_id).exists() {
+            if let Err(err) = self
+                .cache
+                .save_audio_file(self.path.file_id, self.storage.path().to_path_buf())
+            {
+                log::warn!("failed to save audio file to cache: {err:?}");
+            }
+            if let Some(limit) = self.audio_cache_limit {
+                if let Err(err) = self.cache.enforce_audio_limit(limit) {
+                    log::warn!("failed to enforce audio cache limit: {err:?}");
+                }
+            }
+        }
+
+        Ok(())
+    }
 }

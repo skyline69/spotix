@@ -30,6 +30,7 @@ const STOP_AFTER_CONSECUTIVE_LOADING_FAILURES: usize = 3;
 pub struct PlaybackConfig {
     pub bitrate: usize,
     pub pregain: f32,
+    pub audio_cache_limit: Option<u64>,
 }
 
 impl Default for PlaybackConfig {
@@ -37,6 +38,7 @@ impl Default for PlaybackConfig {
         Self {
             bitrate: 320,
             pregain: 3.0,
+            audio_cache_limit: None,
         }
     }
 }
