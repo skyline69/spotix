@@ -19,6 +19,7 @@ use crate::{
 use super::{artist, library, playable, theme, track, utils};
 
 pub const LOAD_DETAIL: Selector<AlbumLink> = Selector::new("app.album.load-detail");
+pub const REFRESH_DETAIL: Selector<AlbumLink> = Selector::new("app.album.refresh-detail");
 
 pub fn detail_widget() -> impl Widget<AppState> {
     Async::new(
@@ -39,12 +40,20 @@ pub fn detail_widget() -> impl Widget<AppState> {
         |_, data, d| data.album_detail.album.defer(d),
         |_, data, r| data.album_detail.album.update(r),
     )
+    .on_command_async(
+        REFRESH_DETAIL,
+        |d| WebApi::global().refresh_album(&d.id),
+        |_, data, d| data.album_detail.album.defer(d),
+        |_, data, r| data.album_detail.album.update(r),
+    )
 }
 
 fn loaded_detail_widget() -> impl Widget<WithCtx<Cached<Arc<Album>>>> {
     let album_cover = rounded_cover_widget(theme::grid(10.0))
-        .lens(Ctx::data())
-        .context_menu(album_ctx_menu);
+        .lens(Ctx::data().then(Cached::data))
+        .context_menu(|album: &WithCtx<Cached<Arc<Album>>>| {
+            album_menu(&album.data.data, &album.ctx.library)
+        });
 
     let album_artists = List::new(artist::link_widget).lens(Album::artists.in_arc());
 
@@ -57,20 +66,40 @@ fn loaded_detail_widget() -> impl Widget<WithCtx<Cached<Arc<Album>>>> {
         .with_text_color(theme::PLACEHOLDER_COLOR)
         .lens(Album::label.in_arc());
 
+    let cache_info = Flex::row()
+        .with_child(
+            Label::dynamic(|ctx: &WithCtx<Cached<Arc<Album>>>, _| {
+                utils::cache_origin_label(ctx.data.cached_at)
+            })
+            .with_text_size(theme::TEXT_SIZE_SMALL)
+            .with_text_color(theme::PLACEHOLDER_COLOR),
+        )
+        .with_spacer(theme::grid(1.0))
+        .with_child(
+            Label::new("Refresh")
+                .with_text_size(theme::TEXT_SIZE_SMALL)
+                .link()
+                .on_left_click(|ctx, _, data: &mut WithCtx<Cached<Arc<Album>>>, _| {
+                    ctx.submit_command(REFRESH_DETAIL.with(data.data.data.link()));
+                }),
+        );
+
     let album_info = Flex::column()
         .cross_axis_alignment(CrossAxisAlignment::Start)
-        .with_child(album_artists)
+        .with_child(album_artists.lens(Ctx::data().then(Cached::data)))
         .with_default_spacer()
-        .with_child(album_date)
+        .with_child(album_date.lens(Ctx::data().then(Cached::data)))
         .with_default_spacer()
-        .with_child(album_label)
+        .with_child(album_label.lens(Ctx::data().then(Cached::data)))
+        .with_default_spacer()
+        .with_child(cache_info)
         .padding(theme::grid(1.0));
 
     let album_top = Flex::row()
         .with_spacer(theme::grid(4.2))
         .with_child(album_cover)
         .with_default_spacer()
-        .with_flex_child(album_info.lens(Ctx::data()), 1.0);
+        .with_flex_child(album_info, 1.0);
 
     let album_tracks = playable::list_widget(playable::Display {
         track: track::Display {
@@ -86,8 +115,7 @@ fn loaded_detail_widget() -> impl Widget<WithCtx<Cached<Arc<Album>>>> {
         .with_spacer(theme::grid(1.0))
         .with_child(album_top)
         .with_spacer(theme::grid(1.0))
-        .with_child(album_tracks)
-        .lens(Ctx::map(Cached::data))
+        .with_child(album_tracks.lens(Ctx::map(Cached::data)))
 }
 
 fn cover_widget(size: f64) -> impl Widget<Arc<Album>> {

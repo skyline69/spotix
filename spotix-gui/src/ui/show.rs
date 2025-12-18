@@ -7,7 +7,9 @@ use druid::{
 
 use crate::{
     cmd,
-    data::{AppState, Ctx, Library, Nav, Show, ShowDetail, ShowEpisodes, ShowLink, WithCtx},
+    data::{
+        AppState, Cached, Ctx, Library, Nav, Show, ShowDetail, ShowEpisodes, ShowLink, WithCtx,
+    },
     ui::utils::{InfoLayout, stat_row},
     webapi::WebApi,
     widget::{Async, MyWidgetExt, RemoteImage},
@@ -16,6 +18,7 @@ use crate::{
 use super::{library, playable, theme, track, utils};
 
 pub const LOAD_DETAIL: Selector<ShowLink> = Selector::new("app.show.load-detail");
+pub const REFRESH_DETAIL: Selector<ShowLink> = Selector::new("app.show.refresh-detail");
 
 pub fn detail_widget() -> impl Widget<AppState> {
     Flex::column()
@@ -38,22 +41,26 @@ fn async_info_widget() -> impl Widget<AppState> {
             LOAD_DETAIL,
             |d| WebApi::global().get_show(&d.id),
             |_, data, d| data.show_detail.show.defer(d),
-            |_, data, (d, r)| {
-                data.show_detail
-                    .show
-                    .update((d, r.map(|cached| cached.data)))
-            },
+            |_, data, (d, r)| data.show_detail.show.update((d, r)),
+        )
+        .on_command_async(
+            REFRESH_DETAIL,
+            |d| WebApi::global().refresh_show(&d.id),
+            |_, data, d| data.show_detail.show.defer(d),
+            |_, data, (d, r)| data.show_detail.show.update((d, r)),
         )
 }
 
-fn info_widget() -> impl Widget<WithCtx<Arc<Show>>> {
+fn info_widget() -> impl Widget<WithCtx<Cached<Arc<Show>>>> {
     let size = theme::grid(16.0);
 
     let image = rounded_cover_widget(size)
         .fix_size(size, size)
         .clip(Size::new(size, size).to_rounded_rect(4.0))
-        .lens(Ctx::data())
-        .context_menu(show_ctx_menu);
+        .lens(Ctx::data().then(Cached::data))
+        .context_menu(|show: &WithCtx<Cached<Arc<Show>>>| {
+            show_menu(&show.data.data, &show.ctx.library)
+        });
 
     let biography = Scroll::new(
         Label::new(|data: &Arc<Show>, _env: &_| data.description.clone())
@@ -61,24 +68,47 @@ fn info_widget() -> impl Widget<WithCtx<Arc<Show>>> {
             .with_text_size(theme::TEXT_SIZE_NORMAL),
     )
     .vertical()
-    .lens(Ctx::data());
+    .lens(Ctx::data().then(Cached::data));
 
     let stats = Flex::column()
-        .with_child(stat_row("Publisher:", |info: &Arc<Show>| {
-            if info.publisher.is_empty() {
-                String::new()
-            } else {
-                info.publisher.to_string()
-            }
-        }))
+        .with_child(
+            stat_row("Publisher:", |info: &Arc<Show>| {
+                if info.publisher.is_empty() {
+                    String::new()
+                } else {
+                    info.publisher.to_string()
+                }
+            })
+            .lens(Ctx::map(Cached::data)),
+        )
         .with_default_spacer()
-        .with_child(stat_row("Episodes:", |info: &Arc<Show>| {
-            match info.total_episodes {
+        .with_child(
+            stat_row("Episodes:", |info: &Arc<Show>| match info.total_episodes {
                 Some(count) => format!("{} episode{}", count, if count == 1 { "" } else { "s" }),
                 None => String::new(),
-            }
-        }));
+            })
+            .lens(Ctx::map(Cached::data)),
+        );
 
+    let cache_info = Flex::row()
+        .with_child(
+            Label::dynamic(|ctx: &WithCtx<Cached<Arc<Show>>>, _| {
+                utils::cache_origin_label(ctx.data.cached_at)
+            })
+            .with_text_size(theme::TEXT_SIZE_SMALL)
+            .with_text_color(theme::PLACEHOLDER_COLOR),
+        )
+        .with_spacer(theme::grid(1.0))
+        .with_child(
+            Label::new("Refresh")
+                .with_text_size(theme::TEXT_SIZE_SMALL)
+                .link()
+                .on_left_click(|ctx, _, data: &mut WithCtx<Cached<Arc<Show>>>, _| {
+                    ctx.submit_command(REFRESH_DETAIL.with(data.data.data.link()));
+                }),
+        );
+
+    let stats = stats.with_default_spacer().with_child(cache_info);
     let me = InfoLayout::new(biography, stats);
 
     Flex::row()
@@ -108,6 +138,18 @@ fn async_episodes_widget() -> impl Widget<AppState> {
     .on_command_async(
         LOAD_DETAIL,
         |d| WebApi::global().get_show_episodes(&d.id),
+        |_, data, d| data.show_detail.episodes.defer(d),
+        |_, data, (d, r)| {
+            let r = r.map(|episodes| ShowEpisodes {
+                show: d.clone(),
+                episodes,
+            });
+            data.show_detail.episodes.update((d, r))
+        },
+    )
+    .on_command_async(
+        REFRESH_DETAIL,
+        |d| WebApi::global().refresh_show_episodes(&d.id),
         |_, data, d| data.show_detail.episodes.defer(d),
         |_, data, (d, r)| {
             let r = r.map(|episodes| ShowEpisodes {

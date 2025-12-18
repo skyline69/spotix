@@ -26,22 +26,61 @@ pub struct Preferences {
     pub active: PreferencesTab,
     #[data(ignore)]
     pub cache: Option<CacheHandle>,
-    pub cache_size: Promise<u64, (), ()>,
+    pub cache_usage: Promise<CacheUsage, (), ()>,
     pub auth: Authentication,
     pub lastfm_auth_result: Option<String>,
 }
 
 impl Preferences {
     pub fn reset(&mut self) {
-        self.cache_size.clear();
+        self.cache_usage.clear();
         self.auth.result.clear();
         self.auth.lastfm_api_key_input.clear();
         self.auth.lastfm_api_secret_input.clear();
     }
 
-    pub fn measure_cache_usage() -> Option<u64> {
-        Config::cache_dir().and_then(|path| get_dir_size(&path))
+    pub fn measure_cache_usage() -> Option<CacheUsage> {
+        let path = Config::cache_dir()?;
+        let mut usage = CacheUsage::default();
+
+        let entries = fs::read_dir(&path).ok()?;
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            let size = entry_path
+                .metadata()
+                .ok()
+                .map(|meta| {
+                    if meta.is_dir() {
+                        get_dir_size(&entry_path).unwrap_or(0)
+                    } else {
+                        meta.len()
+                    }
+                })
+                .unwrap_or(0);
+
+            if entry_path.is_dir() {
+                match entry_path.file_name().and_then(|name| name.to_str()) {
+                    Some("audio") => usage.audio += size,
+                    Some("track") | Some("episode") | Some("key") => usage.metadata += size,
+                    _ => usage.webapi += size,
+                }
+            } else {
+                usage.other += size;
+            }
+        }
+
+        usage.total = usage.audio + usage.metadata + usage.webapi + usage.other;
+        Some(usage)
     }
+}
+
+#[derive(Clone, Debug, Data, Lens, Default)]
+pub struct CacheUsage {
+    pub total: u64,
+    pub audio: u64,
+    pub metadata: u64,
+    pub webapi: u64,
+    pub other: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Data)]

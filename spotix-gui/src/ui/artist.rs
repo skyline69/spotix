@@ -23,6 +23,7 @@ use super::{
 };
 
 pub const LOAD_DETAIL: Selector<ArtistLink> = Selector::new("app.artist.load-detail");
+pub const REFRESH_DETAIL: Selector<ArtistLink> = Selector::new("app.artist.refresh-detail");
 
 pub fn detail_widget() -> impl Widget<AppState> {
     Flex::column()
@@ -58,6 +59,19 @@ fn async_top_tracks_widget() -> impl Widget<AppState> {
             data.artist_detail.top_tracks.update((d, r))
         },
     )
+    .on_command_async(
+        REFRESH_DETAIL,
+        |d| WebApi::global().refresh_artist_top_tracks(&d.id),
+        |_, data, d| data.artist_detail.top_tracks.defer(d),
+        |_, data, (d, r)| {
+            let r = r.map(|tracks| ArtistTracks {
+                id: d.id.clone(),
+                name: d.name.clone(),
+                tracks,
+            });
+            data.artist_detail.top_tracks.update((d, r))
+        },
+    )
 }
 
 fn async_albums_widget() -> impl Widget<AppState> {
@@ -72,6 +86,12 @@ fn async_albums_widget() -> impl Widget<AppState> {
         .on_command_async(
             LOAD_DETAIL,
             |d| WebApi::global().get_artist_albums(&d.id),
+            |_, data, d| data.artist_detail.albums.defer(d),
+            |_, data, r| data.artist_detail.albums.update(r),
+        )
+        .on_command_async(
+            REFRESH_DETAIL,
+            |d| WebApi::global().refresh_artist_albums(&d.id),
             |_, data, d| data.artist_detail.albums.defer(d),
             |_, data, r| data.artist_detail.albums.update(r),
         )
@@ -92,6 +112,12 @@ fn async_artist_info() -> impl Widget<AppState> {
             |_, data, d| data.artist_detail.artist_info.defer(d),
             |_, data, r| data.artist_detail.artist_info.update(r),
         )
+        .on_command_async(
+            REFRESH_DETAIL,
+            |d| WebApi::global().refresh_artist_info(&d.id),
+            |_, data, d| data.artist_detail.artist_info.defer(d),
+            |_, data, r| data.artist_detail.artist_info.update(r),
+        )
 }
 
 fn async_related_widget() -> impl Widget<AppState> {
@@ -100,6 +126,12 @@ fn async_related_widget() -> impl Widget<AppState> {
         .on_command_async(
             LOAD_DETAIL,
             |d| WebApi::global().get_related_artists(&d.id),
+            |_, data, d| data.artist_detail.related_artists.defer(d),
+            |_, data, r| data.artist_detail.related_artists.update(r),
+        )
+        .on_command_async(
+            REFRESH_DETAIL,
+            |d| WebApi::global().refresh_related_artists(&d.id),
             |_, data, d| data.artist_detail.related_artists.defer(d),
             |_, data, r| data.artist_detail.related_artists.update(r),
         )
@@ -167,7 +199,7 @@ pub fn cover_widget(size: f64) -> impl Widget<Artist> {
     .clip(Circle::new((radius, radius), radius))
 }
 
-fn artist_info_widget() -> impl Widget<WithCtx<ArtistInfo>> {
+fn artist_info_widget() -> impl Widget<WithCtx<Cached<ArtistInfo>>> {
     let size = theme::grid(16.0);
 
     let artist_image = RemoteImage::new(
@@ -176,44 +208,72 @@ fn artist_info_widget() -> impl Widget<WithCtx<ArtistInfo>> {
     )
     .fix_size(size, size)
     .clip(Size::new(size, size).to_rounded_rect(4.0))
-    .lens(Ctx::data());
+    .lens(Ctx::data().then(Cached::data));
 
     let biography = Scroll::new(
         Label::new(|data: &ArtistInfo, _env: &_| data.bio.clone())
             .with_line_break_mode(LineBreaking::WordWrap)
             .with_text_size(theme::TEXT_SIZE_NORMAL)
-            .lens(Ctx::data()),
+            .lens(Ctx::data().then(Cached::data)),
     )
     .vertical();
 
     let artist_stats = Flex::column()
-        .with_child(stat_row("Followers:", |info: &ArtistInfo| {
-            utils::format_number_with_commas(info.stats.followers)
-        }))
+        .with_child(
+            stat_row("Followers:", |info: &ArtistInfo| {
+                utils::format_number_with_commas(info.stats.followers)
+            })
+            .lens(Ctx::map(Cached::data)),
+        )
         .with_default_spacer()
-        .with_child(stat_row("Monthly Listeners:", |info: &ArtistInfo| {
-            utils::format_number_with_commas(info.stats.monthly_listeners)
-        }))
+        .with_child(
+            stat_row("Monthly Listeners:", |info: &ArtistInfo| {
+                utils::format_number_with_commas(info.stats.monthly_listeners)
+            })
+            .lens(Ctx::map(Cached::data)),
+        )
         .with_default_spacer()
         .with_child(Either::new(
-            |ctx: &WithCtx<ArtistInfo>, _| ctx.data.stats.world_rank > 0,
+            |ctx: &WithCtx<Cached<ArtistInfo>>, _| ctx.data.data.stats.world_rank > 0,
             stat_row("Ranking:", |info: &ArtistInfo| {
                 format!(
                     "#{} in the world",
                     utils::format_number_with_commas(info.stats.world_rank)
                 )
-            }),
+            })
+            .lens(Ctx::map(Cached::data)),
             Empty,
         ));
+
+    let cache_info = Flex::row()
+        .with_child(
+            Label::dynamic(|ctx: &WithCtx<Cached<ArtistInfo>>, _| {
+                utils::cache_origin_label(ctx.data.cached_at)
+            })
+            .with_text_size(theme::TEXT_SIZE_SMALL)
+            .with_text_color(theme::PLACEHOLDER_COLOR),
+        )
+        .with_spacer(theme::grid(1.0))
+        .with_child(
+            Label::new("Refresh")
+                .with_text_size(theme::TEXT_SIZE_SMALL)
+                .link()
+                .on_left_click(|ctx, _, data: &mut WithCtx<Cached<ArtistInfo>>, _| {
+                    if let Nav::ArtistDetail(link) = &data.ctx.nav {
+                        ctx.submit_command(REFRESH_DETAIL.with(link.clone()));
+                    }
+                }),
+        );
+
+    let artist_stats = artist_stats.with_default_spacer().with_child(cache_info);
+
+    let info_layout = InfoLayout::new(biography, artist_stats);
 
     Flex::row()
         .with_child(artist_image)
         .with_spacer(theme::grid(1.0))
-        .with_flex_child(
-            Flex::row().with_flex_child(InfoLayout::new(biography, artist_stats), 1.0),
-            1.0,
-        )
-        .context_menu(|artist| artist_info_menu(&artist.data))
+        .with_flex_child(Flex::row().with_flex_child(info_layout, 1.0), 1.0)
+        .context_menu(|artist| artist_info_menu(&artist.data.data))
         .padding((0.0, theme::grid(1.0))) // Keep overall vertical padding
 }
 

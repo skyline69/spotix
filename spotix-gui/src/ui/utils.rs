@@ -1,4 +1,7 @@
-use std::{f64::consts::PI, time::Duration};
+use std::{
+    f64::consts::PI,
+    time::{Duration, SystemTime},
+};
 
 use druid::{
     Data, Point, Vec2, Widget, WidgetExt, WidgetPod,
@@ -132,6 +135,18 @@ pub fn as_human(dur: Duration) -> String {
         time_humanize::Accuracy::Rough,
         time_humanize::Tense::Present,
     )
+}
+
+pub fn cache_origin_label(cached_at: Option<SystemTime>) -> String {
+    match cached_at {
+        Some(at) => {
+            let age = SystemTime::now()
+                .duration_since(at)
+                .unwrap_or_else(|_| Duration::from_secs(0));
+            format!("Cached {}", as_human(age))
+        }
+        None => "Fresh".to_string(),
+    }
 }
 
 pub fn format_number_with_commas(n: i64) -> String {

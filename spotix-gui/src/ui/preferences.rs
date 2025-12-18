@@ -7,14 +7,14 @@ use std::time::Duration;
 use crate::{
     cmd,
     data::{
-        AppState, AudioQuality, Authentication, Config, Preferences, PreferencesTab, Promise,
-        SliderScrollScale, Theme,
+        AppState, AudioQuality, Authentication, CacheUsage, Config, Preferences, PreferencesTab,
+        Promise, SliderScrollScale, Theme,
     },
     widget::{Async, Border, Checkbox, MyWidgetExt, icons},
 };
 use druid::{
-    Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx, Selector,
-    Widget, WidgetExt,
+    Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx,
+    RenderContext, Selector, Widget, WidgetExt,
     text::ParseFormatter,
     widget::{
         Button, Controller, CrossAxisAlignment, Flex, Label, LineBreaking, MainAxisAlignment,
@@ -355,7 +355,8 @@ struct CacheController {
 }
 
 impl CacheController {
-    const RESULT: Selector<Option<u64>> = Selector::new("app.preferences.measure-cache-size");
+    const RESULT: Selector<Option<CacheUsage>> =
+        Selector::new("app.preferences.measure-cache-usage");
 
     fn new() -> Self {
         Self { thread: None }
@@ -396,7 +397,7 @@ impl<W: Widget<Preferences>> Controller<Preferences, W> for CacheController {
             }
             Event::Command(cmd) if cmd.is(Self::RESULT) => {
                 let result = cmd.get_unchecked(Self::RESULT).to_owned();
-                data.cache_size.resolve_or_reject((), result.ok_or(()));
+                data.cache_usage.resolve_or_reject((), result.ok_or(()));
                 self.thread.take();
                 ctx.set_handled();
             }
@@ -876,18 +877,33 @@ fn cache_tab_widget() -> impl Widget<AppState> {
         .with_child(Label::new("Size").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(2.0))
         .with_child(Label::dynamic(
-            |preferences: &Preferences, _| match preferences.cache_size {
+            |preferences: &Preferences, _| match &preferences.cache_usage {
                 Promise::Empty | Promise::Rejected { .. } => "Unknown".to_string(),
                 Promise::Deferred { .. } => "Computing...".to_string(),
-                Promise::Resolved { val: 0, .. } => "Empty".to_string(),
-                Promise::Resolved { val, .. } => {
-                    format!("{:.2} MB", val as f64 / 1e6_f64)
-                }
+                Promise::Resolved { val, .. } => format_cache_total(val),
             },
         ));
 
     // Clear cache button
     col = col
+        .with_spacer(theme::grid(2.0))
+        .with_child(Label::new("Utilization").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(1.5))
+        .with_child(cache_usage_row("Audio", theme::BLUE_100, |usage| {
+            usage.audio
+        }))
+        .with_spacer(theme::grid(1.0))
+        .with_child(cache_usage_row("Metadata", theme::GREY_400, |usage| {
+            usage.metadata
+        }))
+        .with_spacer(theme::grid(1.0))
+        .with_child(cache_usage_row("Web API", theme::GREY_500, |usage| {
+            usage.webapi
+        }))
+        .with_spacer(theme::grid(1.0))
+        .with_child(cache_usage_row("Other", theme::GREY_300, |usage| {
+            usage.other
+        }))
         .with_spacer(theme::grid(2.0))
         .with_child(Button::new("Clear Cache").on_left_click(|ctx, _, _, _| {
             ctx.submit_command(CLEAR_CACHE);
@@ -895,6 +911,83 @@ fn cache_tab_widget() -> impl Widget<AppState> {
 
     col.controller(CacheController::new())
         .lens(AppState::preferences)
+}
+
+fn cache_usage_row(
+    label: &'static str,
+    color: druid::Key<Color>,
+    value: fn(&CacheUsage) -> u64,
+) -> impl Widget<Preferences> {
+    let bar_color = color.clone();
+    let bar = SizedBox::new(druid::widget::Painter::new(
+        move |ctx, data: &Preferences, env| {
+            let usage = match &data.cache_usage {
+                Promise::Resolved { val, .. } => val,
+                _ => return,
+            };
+            if usage.total == 0 {
+                return;
+            }
+
+            let ratio = value(usage) as f64 / usage.total as f64;
+            let bounds = ctx.size().to_rect();
+            ctx.fill(bounds, &env.get(theme::GREY_600));
+
+            let mut fill = bounds;
+            fill.x1 = fill.x0 + bounds.width() * ratio.min(1.0);
+            ctx.fill(fill, &env.get(bar_color.clone()));
+        },
+    ))
+    .fix_height(theme::grid(0.6));
+
+    Flex::column()
+        .with_child(
+            Label::new(label)
+                .with_text_size(theme::TEXT_SIZE_SMALL)
+                .with_text_color(theme::PLACEHOLDER_COLOR),
+        )
+        .with_spacer(theme::grid(0.5))
+        .with_child(
+            Flex::row()
+                .with_flex_child(bar.expand_width(), 1.0)
+                .with_spacer(theme::grid(1.0))
+                .with_child(Label::dynamic(move |prefs: &Preferences, _| {
+                    cache_usage_value(prefs, value)
+                })),
+        )
+}
+
+fn cache_usage_value(preferences: &Preferences, value: fn(&CacheUsage) -> u64) -> String {
+    match &preferences.cache_usage {
+        Promise::Resolved { val, .. } => format_bytes(value(val)),
+        Promise::Deferred { .. } => "Computing...".to_string(),
+        _ => "Unknown".to_string(),
+    }
+}
+
+fn format_cache_total(usage: &CacheUsage) -> String {
+    if usage.total == 0 {
+        "Empty".to_string()
+    } else {
+        format_bytes(usage.total)
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = 1024.0 * 1024.0;
+    const GB: f64 = 1024.0 * 1024.0 * 1024.0;
+
+    let b = bytes as f64;
+    if b >= GB {
+        format!("{:.2} GB", b / GB)
+    } else if b >= MB {
+        format!("{:.2} MB", b / MB)
+    } else if b >= KB {
+        format!("{:.2} KB", b / KB)
+    } else {
+        format!("{bytes} B")
+    }
 }
 
 fn about_tab_widget() -> impl Widget<AppState> {

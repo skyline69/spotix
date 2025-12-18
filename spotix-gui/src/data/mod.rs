@@ -37,7 +37,9 @@ pub use crate::data::{
     artist::{
         Artist, ArtistAlbums, ArtistDetail, ArtistInfo, ArtistLink, ArtistStats, ArtistTracks,
     },
-    config::{AudioQuality, Authentication, Config, Preferences, PreferencesTab, Theme},
+    config::{
+        AudioQuality, Authentication, CacheUsage, Config, Preferences, PreferencesTab, Theme,
+    },
     ctx::Ctx,
     find::{FindQuery, Finder, MatchFindQuery},
     nav::{Nav, Route, SpotifyUrl},
@@ -120,7 +122,7 @@ impl AppState {
             preferences: Preferences {
                 active: PreferencesTab::General,
                 cache: None,
-                cache_size: Promise::Empty,
+                cache_usage: Promise::Empty,
                 auth: Authentication::new(),
                 lastfm_auth_result: None,
             },

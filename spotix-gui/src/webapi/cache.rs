@@ -76,11 +76,33 @@ impl WebApiCache {
         }
     }
 
+    pub fn remove(&self, bucket: &str, key: &str) {
+        if let Some(path) = self.key(bucket, key)
+            && let Err(err) = fs::remove_file(path)
+        {
+            log::error!("failed to remove WebAPI cache entry: {err:?}");
+        }
+    }
+
+    pub fn clear_bucket(&self, bucket: &str) {
+        if let Some(path) = self.bucket(bucket)
+            && let Err(err) = fs::remove_dir_all(path)
+        {
+            log::error!("failed to clear WebAPI cache bucket: {err:?}");
+        }
+    }
+
     fn bucket(&self, bucket: &str) -> Option<PathBuf> {
         self.base.as_ref().map(|path| path.join(bucket))
     }
 
     fn key(&self, bucket: &str, key: &str) -> Option<PathBuf> {
         self.bucket(bucket).map(|path| path.join(key))
+    }
+
+    pub fn hash_key(value: &str) -> String {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        format!("{:016x}", hasher.finish())
     }
 }

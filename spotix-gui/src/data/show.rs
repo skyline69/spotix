@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 use spotix_core::item_id::{ItemId, ItemIdType};
 use time::{Date, macros::format_description};
 
-use crate::data::{Image, Promise};
+use crate::data::{Cached, Image, Promise};
 
 use super::album::DatePrecision;
 
 #[derive(Clone, Data, Lens)]
 pub struct ShowDetail {
-    pub show: Promise<Arc<Show>, ShowLink>,
+    pub show: Promise<Cached<Arc<Show>>, ShowLink>,
     pub episodes: Promise<ShowEpisodes, ShowLink>,
 }
 

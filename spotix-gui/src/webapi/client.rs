@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
     sync::Arc,
     thread,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use druid::{
@@ -42,6 +42,12 @@ use crate::{
 
 use super::{cache::WebApiCache, local::LocalTrackManager};
 use sanitize_html::{rules::predefined::DEFAULT, sanitize_str};
+
+#[derive(Copy, Clone)]
+enum CachePolicy {
+    Use,
+    Refresh,
+}
 
 pub struct WebApi {
     session: SessionService,
@@ -87,6 +93,10 @@ impl WebApi {
             platform,
             env!("CARGO_PKG_VERSION")
         )
+    }
+
+    fn cache_key(raw: &str) -> String {
+        WebApiCache::hash_key(raw)
     }
 
     fn access_token(&self) -> Result<String, Error> {
@@ -155,16 +165,6 @@ impl WebApi {
         Self::with_retry(|| self.request(request)).map(|_| ())
     }
 
-    /// Send a request and return the deserialized JSON body.  Use for GET
-    /// requests.
-    fn load<T: DeserializeOwned>(&self, request: &RequestBuilder) -> Result<T, Error> {
-        let mut response = Self::with_retry(|| self.request(request))?;
-        response
-            .body_mut()
-            .read_json()
-            .map_err(|err| Error::WebApiError(err.to_string()))
-    }
-
     /// Send a request using `self.load()`, but only if it isn't already present
     /// in cache.
     fn load_cached<T: Data + DeserializeOwned>(
@@ -173,10 +173,36 @@ impl WebApi {
         bucket: &str,
         key: &str,
     ) -> Result<Cached<T>, Error> {
-        if let Some(file) = self.cache.get(bucket, key) {
+        self.load_cached_with(request, bucket, key, CachePolicy::Use)
+    }
+
+    fn load_cached_with<T: Data + DeserializeOwned>(
+        &self,
+        request: &RequestBuilder,
+        bucket: &str,
+        key: &str,
+        policy: CachePolicy,
+    ) -> Result<Cached<T>, Error> {
+        let (value, cached_at) = self.load_cached_value(request, bucket, key, policy)?;
+        Ok(match cached_at {
+            Some(at) => Cached::new(value, at),
+            None => Cached::fresh(value),
+        })
+    }
+
+    fn load_cached_value<T: DeserializeOwned>(
+        &self,
+        request: &RequestBuilder,
+        bucket: &str,
+        key: &str,
+        policy: CachePolicy,
+    ) -> Result<(T, Option<SystemTime>), Error> {
+        if matches!(policy, CachePolicy::Use)
+            && let Some(file) = self.cache.get(bucket, key)
+        {
             let cached_at = file.metadata()?.modified()?;
             let value = serde_json::from_reader(file)?;
-            Ok(Cached::new(value, cached_at))
+            Ok((value, Some(cached_at)))
         } else {
             let response = Self::with_retry(|| self.request(request))?;
             let body = {
@@ -187,19 +213,18 @@ impl WebApi {
             };
             let value = serde_json::from_slice(&body)?;
             self.cache.set(bucket, key, &body);
-            Ok(Cached::fresh(value))
+            Ok((value, None))
         }
     }
 
-    /// Iterate a paginated result set by sending `request` with added
-    /// pagination parameters.  Mostly used through `load_all_pages`.
-    fn for_all_pages<T: DeserializeOwned + Clone>(
+    fn for_all_pages_cached<T: DeserializeOwned + Clone>(
         &self,
         request: &RequestBuilder,
+        bucket: &str,
+        key: &str,
+        policy: CachePolicy,
         mut func: impl FnMut(Page<T>) -> Result<(), Error>,
     ) -> Result<(), Error> {
-        // TODO: Some result sets, like very long playlists and saved tracks/albums can
-        // be very big.  Implement virtualized scrolling and lazy-loading of results.
         let mut limit = 50;
         let mut offset = 0;
         loop {
@@ -207,7 +232,8 @@ impl WebApi {
                 .clone()
                 .query("limit".to_string(), limit.to_string())
                 .query("offset".to_string(), offset.to_string());
-            let page: Page<T> = self.load(&req)?;
+            let page_key = format!("{key}-o{offset}-l{limit}");
+            let (page, _) = self.load_cached_value::<Page<T>>(&req, bucket, &page_key, policy)?;
 
             let page_total = page.total;
             let page_offset = page.offset;
@@ -223,11 +249,13 @@ impl WebApi {
         }
     }
 
-    /// Very similar to `for_all_pages`, but only returns a certain number of results
-    fn for_some_pages<T: DeserializeOwned + Clone>(
+    fn for_some_pages_cached<T: DeserializeOwned + Clone>(
         &self,
         request: &RequestBuilder,
         lim: usize,
+        bucket: &str,
+        key: &str,
+        policy: CachePolicy,
         mut func: impl FnMut(Page<T>) -> Result<(), Error>,
     ) -> Result<(), Error> {
         let mut limit = 50;
@@ -238,43 +266,42 @@ impl WebApi {
                 .clone()
                 .query("limit".to_string(), limit.to_string())
                 .query("offset".to_string(), offset.to_string());
-
-            let page: Page<T> = self.load(&req)?;
-
+            let page_key = format!("{key}-o{offset}-l{limit}");
+            let (page, _) = self.load_cached_value::<Page<T>>(&req, bucket, &page_key, policy)?;
             func(page)?;
-        } else {
-            loop {
-                let req = request
-                    .clone()
-                    .query("limit".to_string(), limit.to_string())
-                    .query("offset".to_string(), offset.to_string());
+            return Ok(());
+        }
 
-                let page: Page<T> = self.load(&req)?;
+        loop {
+            let req = request
+                .clone()
+                .query("limit".to_string(), limit.to_string())
+                .query("offset".to_string(), offset.to_string());
+            let page_key = format!("{key}-o{offset}-l{limit}");
+            let (page, _) = self.load_cached_value::<Page<T>>(&req, bucket, &page_key, policy)?;
 
-                let page_total = limit / lim;
-                let page_offset = page.offset;
-                let page_limit = page.limit;
-                func(page)?;
+            let page_offset = page.offset;
+            let page_limit = page.limit;
+            func(page)?;
 
-                if page_total > offset && offset < self.paginated_limit {
-                    limit = page_limit;
-                    offset = page_offset + page_limit;
-                } else {
-                    break;
-                }
+            if page_offset + page_limit < lim {
+                offset = page_offset + page_limit;
+            } else {
+                break Ok(());
             }
         }
-        Ok(())
     }
-    /// Load a paginated result set by sending `request` with added pagination
-    /// parameters and return the aggregated results.  Use with GET requests.
-    fn load_all_pages<T: DeserializeOwned + Clone>(
+
+    fn load_all_pages_cached<T: DeserializeOwned + Clone>(
         &self,
         request: &RequestBuilder,
+        bucket: &str,
+        key: &str,
+        policy: CachePolicy,
     ) -> Result<Vector<T>, Error> {
         let mut results = Vector::new();
 
-        self.for_all_pages(request, |page| {
+        self.for_all_pages_cached(request, bucket, key, policy, |page| {
             results.append(page.items);
             Ok(())
         })?;
@@ -282,22 +309,23 @@ impl WebApi {
         Ok(results)
     }
 
-    /// Does a similar thing as `load_all_pages`, but limiting the number of results
-    fn load_some_pages<T: DeserializeOwned + Clone>(
+    fn load_some_pages_cached<T: DeserializeOwned + Clone>(
         &self,
         request: &RequestBuilder,
         number: usize,
+        bucket: &str,
+        key: &str,
+        policy: CachePolicy,
     ) -> Result<Vector<T>, Error> {
         let mut results = Vector::new();
 
-        self.for_some_pages(request, number, |page| {
+        self.for_some_pages_cached(request, number, bucket, key, policy, |page| {
             results.append(page.items);
             Ok(())
         })?;
 
         Ok(results)
     }
-
     /// Load local track files from the official client's database.
     pub fn load_local_tracks(&self, username: &str) {
         if let Err(err) = self
@@ -309,7 +337,12 @@ impl WebApi {
         }
     }
 
-    fn load_and_return_home_section(&self, request: &RequestBuilder) -> Result<MixedView, Error> {
+    fn load_and_return_home_section(
+        &self,
+        request: &RequestBuilder,
+        cache_key: &str,
+        policy: CachePolicy,
+    ) -> Result<MixedView, Error> {
         #[derive(Deserialize)]
         pub struct Welcome {
             data: WelcomeData,
@@ -470,7 +503,10 @@ impl WebApi {
         }
 
         // Extract the playlists
-        let result: Welcome = match self.load(request) {
+        let result: Welcome = match self
+            .load_cached_value(request, "home-section", cache_key, policy)
+            .map(|(value, _)| value)
+        {
             Ok(res) => res,
             Err(e) => {
                 info!("Error loading home section: {e}");
@@ -692,15 +728,17 @@ impl WebApi {
 impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/get-users-profile
     pub fn get_user_profile(&self) -> Result<UserProfile, Error> {
-        let result = self.load(&RequestBuilder::new("v1/me".to_string(), Method::Get, None))?;
-        Ok(result)
+        let request = &RequestBuilder::new("v1/me".to_string(), Method::Get, None);
+        let result = self.load_cached(request, "user-profile", "me")?;
+        Ok(result.data)
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-users-top-artists-and-tracks
     pub fn get_user_top_tracks(&self) -> Result<Vector<Arc<Track>>, Error> {
         let request = &RequestBuilder::new("v1/me/top/tracks".to_string(), Method::Get, None)
             .query("market", "from_token");
-        let result: Vector<Arc<Track>> = self.load_some_pages(request, 30)?;
+        let result: Vector<Arc<Track>> =
+            self.load_some_pages_cached(request, 30, "user-top-tracks", "all", CachePolicy::Use)?;
 
         Ok(result)
     }
@@ -714,7 +752,7 @@ impl WebApi {
         let request = &RequestBuilder::new("v1/me/top/artists", Method::Get, None);
 
         Ok(self
-            .load_some_pages(request, 10)?
+            .load_some_pages_cached(request, 10, "user-top-artists", "all", CachePolicy::Use)?
             .into_iter()
             .map(|item: Artist| item)
             .collect())
@@ -732,9 +770,22 @@ impl WebApi {
 
     // https://developer.spotify.com/documentation/web-api/reference/get-an-artists-albums/
     pub fn get_artist_albums(&self, id: &str) -> Result<ArtistAlbums, Error> {
+        self.get_artist_albums_with_policy(id, CachePolicy::Use)
+    }
+
+    pub fn refresh_artist_albums(&self, id: &str) -> Result<ArtistAlbums, Error> {
+        self.get_artist_albums_with_policy(id, CachePolicy::Refresh)
+    }
+
+    fn get_artist_albums_with_policy(
+        &self,
+        id: &str,
+        policy: CachePolicy,
+    ) -> Result<ArtistAlbums, Error> {
         let request = &RequestBuilder::new(format!("v1/artists/{id}/albums"), Method::Get, None)
             .query("market", "from_token");
-        let result: Vector<Arc<Album>> = self.load_all_pages(request)?;
+        let result: Vector<Arc<Album>> =
+            self.load_all_pages_cached(request, "artist-albums", id, policy)?;
 
         let mut artist_albums = ArtistAlbums {
             albums: Vector::new(),
@@ -777,6 +828,18 @@ impl WebApi {
 
     // https://developer.spotify.com/documentation/web-api/reference/get-an-artists-top-tracks
     pub fn get_artist_top_tracks(&self, id: &str) -> Result<Vector<Arc<Track>>, Error> {
+        self.get_artist_top_tracks_with_policy(id, CachePolicy::Use)
+    }
+
+    pub fn refresh_artist_top_tracks(&self, id: &str) -> Result<Vector<Arc<Track>>, Error> {
+        self.get_artist_top_tracks_with_policy(id, CachePolicy::Refresh)
+    }
+
+    fn get_artist_top_tracks_with_policy(
+        &self,
+        id: &str,
+        policy: CachePolicy,
+    ) -> Result<Vector<Arc<Track>>, Error> {
         #[derive(Deserialize)]
         struct Tracks {
             tracks: Vector<Arc<Track>>,
@@ -784,12 +847,25 @@ impl WebApi {
         let request =
             &RequestBuilder::new(format!("v1/artists/{id}/top-tracks"), Method::Get, None)
                 .query("market", "from_token");
-        let result: Tracks = self.load(request)?;
+        let (result, _) =
+            self.load_cached_value::<Tracks>(request, "artist-top-tracks", id, policy)?;
         Ok(result.tracks)
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-an-artists-related-artists
     pub fn get_related_artists(&self, id: &str) -> Result<Cached<Vector<Artist>>, Error> {
+        self.get_related_artists_with_policy(id, CachePolicy::Use)
+    }
+
+    pub fn refresh_related_artists(&self, id: &str) -> Result<Cached<Vector<Artist>>, Error> {
+        self.get_related_artists_with_policy(id, CachePolicy::Refresh)
+    }
+
+    fn get_related_artists_with_policy(
+        &self,
+        id: &str,
+        policy: CachePolicy,
+    ) -> Result<Cached<Vector<Artist>>, Error> {
         #[derive(Clone, Data, Deserialize)]
         struct Artists {
             artists: Vector<Artist>,
@@ -799,11 +875,24 @@ impl WebApi {
             Method::Get,
             None,
         );
-        let result: Cached<Artists> = self.load_cached(request, "related-artists", id)?;
+        let result: Cached<Artists> =
+            self.load_cached_with(request, "related-artists", id, policy)?;
         Ok(result.map(|result| result.artists))
     }
 
-    pub fn get_artist_info(&self, id: &str) -> Result<ArtistInfo, Error> {
+    pub fn get_artist_info(&self, id: &str) -> Result<Cached<ArtistInfo>, Error> {
+        self.get_artist_info_with_policy(id, CachePolicy::Use)
+    }
+
+    pub fn refresh_artist_info(&self, id: &str) -> Result<Cached<ArtistInfo>, Error> {
+        self.get_artist_info_with_policy(id, CachePolicy::Refresh)
+    }
+
+    fn get_artist_info_with_policy(
+        &self,
+        id: &str,
+        policy: CachePolicy,
+    ) -> Result<Cached<ArtistInfo>, Error> {
         #[derive(Clone, Data, Deserialize)]
         pub struct Welcome {
             data: Data1,
@@ -880,41 +969,40 @@ impl WebApi {
             &RequestBuilder::new("pathfinder/v2/query".to_string(), Method::Post, Some(json))
                 .set_base_uri("api-partner.spotify.com")
                 .header("User-Agent", Self::user_agent());
-        let result: Cached<Welcome> = self.load_cached(request, "artist-info", id)?;
+        let result: Cached<Welcome> = self.load_cached_with(request, "artist-info", id, policy)?;
 
-        let hrefs: Vector<String> = result
-            .data
-            .data
-            .artist_union
-            .profile
-            .external_links
-            .items
-            .into_iter()
-            .map(|link| link.url)
-            .collect();
+        Ok(result.map(|result| {
+            let hrefs: Vector<String> = result
+                .data
+                .artist_union
+                .profile
+                .external_links
+                .items
+                .iter()
+                .map(|link| link.url.clone())
+                .collect();
 
-        Ok(ArtistInfo {
-            main_image: Arc::from(
-                result.data.data.artist_union.visuals.avatar_image.sources[0]
-                    .url
-                    .to_string(),
-            ),
-            stats: ArtistStats {
-                followers: result.data.data.artist_union.stats.followers,
-                monthly_listeners: result.data.data.artist_union.stats.monthly_listeners,
-                world_rank: result.data.data.artist_union.stats.world_rank,
-            },
-            bio: {
-                let sanitized_bio = sanitize_str(
-                    &DEFAULT,
-                    &result.data.data.artist_union.profile.biography.text,
-                )
-                .unwrap_or_default();
-                sanitized_bio.replace("&amp;", "&")
-            },
-
-            artist_links: hrefs,
-        })
+            ArtistInfo {
+                artist_id: id.into(),
+                main_image: Arc::from(
+                    result.data.artist_union.visuals.avatar_image.sources[0]
+                        .url
+                        .to_string(),
+                ),
+                stats: ArtistStats {
+                    followers: result.data.artist_union.stats.followers,
+                    monthly_listeners: result.data.artist_union.stats.monthly_listeners,
+                    world_rank: result.data.artist_union.stats.world_rank,
+                },
+                bio: {
+                    let sanitized_bio =
+                        sanitize_str(&DEFAULT, &result.data.artist_union.profile.biography.text)
+                            .unwrap_or_default();
+                    sanitized_bio.replace("&amp;", "&")
+                },
+                artist_links: hrefs,
+            }
+        }))
     }
 }
 
@@ -922,9 +1010,21 @@ impl WebApi {
 impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/get-an-album/
     pub fn get_album(&self, id: &str) -> Result<Cached<Arc<Album>>, Error> {
+        self.get_album_with_policy(id, CachePolicy::Use)
+    }
+
+    pub fn refresh_album(&self, id: &str) -> Result<Cached<Arc<Album>>, Error> {
+        self.get_album_with_policy(id, CachePolicy::Refresh)
+    }
+
+    fn get_album_with_policy(
+        &self,
+        id: &str,
+        policy: CachePolicy,
+    ) -> Result<Cached<Arc<Album>>, Error> {
         let request = &RequestBuilder::new(format!("v1/albums/{id}"), Method::Get, None)
             .query("market", "from_token");
-        let result = self.load_cached(request, "album", id)?;
+        let result = self.load_cached_with(request, "album", id, policy)?;
         Ok(result)
     }
 }
@@ -933,48 +1033,83 @@ impl WebApi {
 impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/get-a-show/Add commentMore actions
     pub fn get_show(&self, id: &str) -> Result<Cached<Arc<Show>>, Error> {
+        self.get_show_with_policy(id, CachePolicy::Use)
+    }
+
+    pub fn refresh_show(&self, id: &str) -> Result<Cached<Arc<Show>>, Error> {
+        self.get_show_with_policy(id, CachePolicy::Refresh)
+    }
+
+    fn get_show_with_policy(
+        &self,
+        id: &str,
+        policy: CachePolicy,
+    ) -> Result<Cached<Arc<Show>>, Error> {
         let request = &RequestBuilder::new(format!("v1/shows/{id}"), Method::Get, None)
             .query("market", "from_token");
 
-        let result = self.load_cached(request, "show", id)?;
+        let result = self.load_cached_with(request, "show", id, policy)?;
 
         Ok(result)
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-multiple-episodes
-    pub fn get_episodes(
+    fn get_episodes_with_policy(
         &self,
         ids: impl IntoIterator<Item = EpisodeId>,
+        policy: CachePolicy,
     ) -> Result<Vector<Arc<Episode>>, Error> {
         #[derive(Deserialize)]
         struct Episodes {
             episodes: Vector<Arc<Episode>>,
         }
 
+        let ids: Vec<EpisodeId> = ids.into_iter().collect();
+        let id_list = ids.iter().map(|id| id.0.to_base62()).join(",");
+        let cache_key = Self::cache_key(&id_list);
         let request = &RequestBuilder::new("v1/episodes", Method::Get, None)
-            .query("ids", ids.into_iter().map(|id| id.0.to_base62()).join(","))
+            .query("ids", &id_list)
             .query("market", "from_token");
-        let result: Episodes = self.load(request)?;
+        let (result, _) =
+            self.load_cached_value::<Episodes>(request, "episodes", &cache_key, policy)?;
         Ok(result.episodes)
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-a-shows-episodes
     pub fn get_show_episodes(&self, id: &str) -> Result<Vector<Arc<Episode>>, Error> {
+        self.get_show_episodes_with_policy(id, CachePolicy::Use)
+    }
+
+    pub fn refresh_show_episodes(&self, id: &str) -> Result<Vector<Arc<Episode>>, Error> {
+        self.get_show_episodes_with_policy(id, CachePolicy::Refresh)
+    }
+
+    fn get_show_episodes_with_policy(
+        &self,
+        id: &str,
+        policy: CachePolicy,
+    ) -> Result<Vector<Arc<Episode>>, Error> {
         let request = &RequestBuilder::new(format!("v1/shows/{id}/episodes"), Method::Get, None)
             .query("market", "from_token");
 
         let mut results = Vector::new();
-        self.for_all_pages(request, |page: Page<Option<EpisodeLink>>| {
-            if !page.items.is_empty() {
-                let ids = page
-                    .items
-                    .into_iter()
-                    .filter_map(|link| link.map(|link| link.id));
-                let episodes = self.get_episodes(ids)?;
-                results.append(episodes);
-            }
-            Ok(())
-        })?;
+        self.for_all_pages_cached(
+            request,
+            "show-episodes",
+            id,
+            policy,
+            |page: Page<Option<EpisodeLink>>| {
+                if !page.items.is_empty() {
+                    let ids = page
+                        .items
+                        .into_iter()
+                        .filter_map(|link| link.map(|link| link.id));
+                    let episodes = self.get_episodes_with_policy(ids, policy)?;
+                    results.append(episodes);
+                }
+                Ok(())
+            },
+        )?;
 
         Ok(results)
     }
@@ -986,7 +1121,8 @@ impl WebApi {
     pub fn get_track(&self, id: &str) -> Result<Arc<Track>, Error> {
         let request = &RequestBuilder::new(format!("v1/tracks/{id}"), Method::Get, None)
             .query("market", "from_token");
-        self.load(request)
+        let result = self.load_cached(request, "track", id)?;
+        Ok(result.data)
     }
 
     pub fn get_track_credits(&self, track_id: &str) -> Result<TrackCredits, Error> {
@@ -996,8 +1132,8 @@ impl WebApi {
             None,
         )
         .set_base_uri("spclient.wg.spotify.com");
-        let result: TrackCredits = self.load(request)?;
-        Ok(result)
+        let result = self.load_cached(request, "track-credits", track_id)?;
+        Ok(result.data)
     }
 
     pub fn get_lyrics(&self, track_id: String) -> Result<Vector<TrackLines>, Error> {
@@ -1044,7 +1180,7 @@ impl WebApi {
             &RequestBuilder::new("v1/me/albums", Method::Get, None).query("market", "from_token");
 
         Ok(self
-            .load_all_pages(request)?
+            .load_all_pages_cached(request, "saved-albums", "all", CachePolicy::Use)?
             .into_iter()
             .map(|item: SavedAlbum| item.album)
             .collect())
@@ -1053,13 +1189,17 @@ impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/save-albums-user/
     pub fn save_album(&self, id: &str) -> Result<(), Error> {
         let request = &RequestBuilder::new("v1/me/albums", Method::Put, None).query("ids", id);
-        self.send_empty_json(request)
+        self.send_empty_json(request)?;
+        self.cache.clear_bucket("saved-albums");
+        Ok(())
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/remove-albums-user/
     pub fn unsave_album(&self, id: &str) -> Result<(), Error> {
         let request = &RequestBuilder::new("v1/me/albums", Method::Delete, None).query("ids", id);
-        self.send_empty_json(request)
+        self.send_empty_json(request)?;
+        self.cache.clear_bucket("saved-albums");
+        Ok(())
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-users-saved-tracks/
@@ -1071,7 +1211,7 @@ impl WebApi {
         let request =
             &RequestBuilder::new("v1/me/tracks", Method::Get, None).query("market", "from_token");
         Ok(self
-            .load_all_pages(request)?
+            .load_all_pages_cached(request, "saved-tracks", "all", CachePolicy::Use)?
             .into_iter()
             .map(|item: SavedTrack| item.track)
             .collect())
@@ -1088,7 +1228,7 @@ impl WebApi {
             &RequestBuilder::new("v1/me/shows", Method::Get, None).query("market", "from_token");
 
         Ok(self
-            .load_all_pages(request)?
+            .load_all_pages_cached(request, "saved-shows", "all", CachePolicy::Use)?
             .into_iter()
             .map(|item: SavedShow| item.show)
             .collect())
@@ -1097,25 +1237,33 @@ impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/save-tracks-user/
     pub fn save_track(&self, id: &str) -> Result<(), Error> {
         let request = &RequestBuilder::new("v1/me/tracks", Method::Put, None).query("ids", id);
-        self.send_empty_json(request)
+        self.send_empty_json(request)?;
+        self.cache.clear_bucket("saved-tracks");
+        Ok(())
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/remove-tracks-user/
     pub fn unsave_track(&self, id: &str) -> Result<(), Error> {
         let request = &RequestBuilder::new("v1/me/tracks", Method::Delete, None).query("ids", id);
-        self.send_empty_json(request)
+        self.send_empty_json(request)?;
+        self.cache.clear_bucket("saved-tracks");
+        Ok(())
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/save-shows-user
     pub fn save_show(&self, id: &str) -> Result<(), Error> {
         let request = &RequestBuilder::new("v1/me/shows", Method::Put, None).query("ids", id);
-        self.send_empty_json(request)
+        self.send_empty_json(request)?;
+        self.cache.clear_bucket("saved-shows");
+        Ok(())
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/remove-shows-user
     pub fn unsave_show(&self, id: &str) -> Result<(), Error> {
         let request = &RequestBuilder::new("v1/me/shows", Method::Delete, None).query("ids", id);
-        self.send_empty_json(request)
+        self.send_empty_json(request)?;
+        self.cache.clear_bucket("saved-shows");
+        Ok(())
     }
 }
 
@@ -1168,7 +1316,8 @@ impl WebApi {
                 .header("User-Agent", Self::user_agent());
 
         // Extract the playlists
-        self.load_and_return_home_section(request)
+        let cache_key = Self::cache_key(&format!("{section_uri}:{country}:{time_zone}"));
+        self.load_and_return_home_section(request, &cache_key, CachePolicy::Use)
     }
 
     pub fn get_made_for_you(&self) -> Result<MixedView, Error> {
@@ -1219,7 +1368,8 @@ impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/get-a-list-of-current-users-playlists
     pub fn get_playlists(&self) -> Result<Vector<Playlist>, Error> {
         let request = &RequestBuilder::new("v1/me/playlists", Method::Get, None);
-        let result: Vector<Playlist> = self.load_all_pages(request)?;
+        let result: Vector<Playlist> =
+            self.load_all_pages_cached(request, "playlists", "all", CachePolicy::Use)?;
         Ok(result)
     }
 
@@ -1228,6 +1378,7 @@ impl WebApi {
             &RequestBuilder::new(format!("v1/playlists/{id}/followers"), Method::Put, None)
                 .set_body(Some(json!({"public": false})));
         self.request(request)?;
+        self.cache.clear_bucket("playlists");
         Ok(())
     }
 
@@ -1235,14 +1386,15 @@ impl WebApi {
         let request =
             &RequestBuilder::new(format!("v1/playlists/{id}/followers"), Method::Delete, None);
         self.request(request)?;
+        self.cache.clear_bucket("playlists");
         Ok(())
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-playlist
     pub fn get_playlist(&self, id: &str) -> Result<Playlist, Error> {
         let request = &RequestBuilder::new(format!("v1/playlists/{id}"), Method::Get, None);
-        let result: Playlist = self.load(request)?;
-        Ok(result)
+        let result = self.load_cached(request, "playlist", id)?;
+        Ok(result.data)
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks
@@ -1266,7 +1418,8 @@ impl WebApi {
             .query("marker", "from_token")
             .query("additional_types", "track");
 
-        let result: Vector<PlaylistItem> = self.load_all_pages(request)?;
+        let result: Vector<PlaylistItem> =
+            self.load_all_pages_cached(request, "playlist-tracks", id, CachePolicy::Use)?;
 
         let local_track_manager = self.local_track_manager.lock();
 
@@ -1288,6 +1441,8 @@ impl WebApi {
         let request = &RequestBuilder::new(format!("v1/playlists/{id}/tracks"), Method::Get, None)
             .set_body(Some(json!({ "name": name })));
         self.request(request)?;
+        self.cache.remove("playlist", id);
+        self.cache.clear_bucket("playlists");
         Ok(())
     }
 
@@ -1299,7 +1454,10 @@ impl WebApi {
             None,
         )
         .query("uris", track_uri);
-        self.request(request).map(|_| ())
+        self.request(request)?;
+        self.cache.remove("playlist-tracks", playlist_id);
+        self.cache.remove("playlist", playlist_id);
+        Ok(())
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/remove-tracks-playlist
@@ -1314,7 +1472,10 @@ impl WebApi {
             None,
         )
         .set_body(Some(json!({ "positions": [track_pos] })));
-        self.request(request).map(|_| ())
+        self.request(request)?;
+        self.cache.remove("playlist-tracks", playlist_id);
+        self.cache.remove("playlist", playlist_id);
+        Ok(())
     }
 }
 
@@ -1342,8 +1503,13 @@ impl WebApi {
             .query("type", &type_query_param)
             .query("limit", limit.to_string())
             .query("marker", "from_token");
-
-        let result: ApiSearchResults = self.load(request)?;
+        let cache_key = Self::cache_key(&format!("{query}:{type_query_param}:{limit}"));
+        let (result, _) = self.load_cached_value::<ApiSearchResults>(
+            request,
+            "search",
+            &cache_key,
+            CachePolicy::Use,
+        )?;
 
         let artists = result.artists.map_or_else(Vector::new, |page| page.items);
         let albums = result.albums.map_or_else(Vector::new, |page| page.items);
@@ -1434,7 +1600,10 @@ impl WebApi {
         request = add_range_param(request, data.params.speechiness, "speechiness");
         request = add_range_param(request, data.params.valence, "valence");
 
-        let mut result: Recommendations = self.load(&request)?;
+        let cache_key = Self::cache_key(&request.build());
+        let result: Cached<Recommendations> =
+            self.load_cached_with(&request, "recommendations", &cache_key, CachePolicy::Use)?;
+        let mut result = result.data;
         result.request = data;
         Ok(result)
     }
