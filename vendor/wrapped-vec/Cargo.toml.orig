@@ -1,0 +1,19 @@
+[package]
+name = "wrapped-vec"
+version = "0.3.0"
+authors = ["David Futcher <david@futcher.io>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+description = "Macro for generating wrapped Vec types and associated boilerplate"
+repository = "https://github.com/bobbo/wrapped-vec"
+readme = "README.md"
+keywords = ["vec", "vector", "collection", "iterator", "codegen"]
+categories = ["rust-patterns", "development-tools", "data-structures"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "^1"
+quote = "^1"
+syn ="^1"

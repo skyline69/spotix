@@ -167,7 +167,7 @@ impl PlaybackController {
         let hwnd = {
             #[cfg(target_os = "windows")]
             {
-                use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
+                use druid_shell::raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
                 let handle = match window.raw_window_handle() {
                     RawWindowHandle::Win32(h) => h,
                     _ => unreachable!(),

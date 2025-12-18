@@ -16,7 +16,7 @@ use spotix_core::{
     player::PlaybackConfig,
     session::{SessionConfig, SessionConnection},
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use super::{Nav, Promise, QueueBehavior, SliderScrollScale};
 use crate::ui::theme;
@@ -174,6 +174,10 @@ impl Config {
         Self::app_dirs().map(|dirs| dirs.config_dir)
     }
 
+    pub fn themes_dir() -> Option<PathBuf> {
+        Self::config_dir().map(|dir| dir.join("themes"))
+    }
+
     fn config_path() -> Option<PathBuf> {
         Self::config_dir().map(|dir| dir.join(CONFIG_FILENAME))
     }
@@ -270,11 +274,39 @@ impl AudioQuality {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Data, Serialize, Deserialize, Default)]
+#[derive(Clone, Debug, Eq, PartialEq, Data, Default)]
 pub enum Theme {
     #[default]
     Light,
     Dark,
+    Custom(String),
+}
+
+impl Serialize for Theme {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Theme::Light => serializer.serialize_str("Light"),
+            Theme::Dark => serializer.serialize_str("Dark"),
+            Theme::Custom(name) => serializer.serialize_str(name),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Theme {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        match value.as_str() {
+            "Light" | "light" => Ok(Theme::Light),
+            "Dark" | "dark" => Ok(Theme::Dark),
+            other => Ok(Theme::Custom(other.to_string())),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Data, Serialize, Deserialize, Default)]

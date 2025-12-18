@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -19,6 +21,8 @@ use druid::{
     Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx, Selector,
     Widget, WidgetExt,
 };
+use log::warn;
+use serde::Deserialize;
 use spotix_core::{connection::Credentials, lastfm, oauth, session::SessionConfig};
 
 use super::{icons::SvgIcon, theme};
@@ -188,7 +192,7 @@ fn general_tab_widget() -> impl Widget<AppState> {
         .with_child(Label::new("Theme").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(2.0))
         .with_child(
-            RadioGroup::column(vec![("Light", Theme::Light), ("Dark", Theme::Dark)])
+            RadioGroup::column(theme_options())
                 .lens(AppState::config.then(Config::theme)),
         );
 
@@ -274,6 +278,77 @@ fn general_tab_widget() -> impl Widget<AppState> {
         );
 
     col
+}
+
+fn theme_options() -> Vec<(String, Theme)> {
+    let mut options = vec![
+        ("Light".to_string(), Theme::Light),
+        ("Dark".to_string(), Theme::Dark),
+    ];
+    let mut custom = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Some(dir) = Config::themes_dir() {
+        match fs::read_dir(&dir) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let is_toml = path
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        .map(|ext| ext.eq_ignore_ascii_case("toml"))
+                        .unwrap_or(false);
+                    if !is_toml {
+                        continue;
+                    }
+
+                    let contents = match fs::read_to_string(&path) {
+                        Ok(contents) => contents,
+                        Err(err) => {
+                            warn!("Failed to read theme file {:?}: {}", path, err);
+                            continue;
+                        }
+                    };
+
+                    let name = match theme_label_from_toml(&contents).or_else(|| {
+                        path.file_stem().and_then(|stem| stem.to_str()).map(|s| s.to_string())
+                    }) {
+                        Some(name) => name,
+                        None => {
+                            warn!("Skipping theme file with non-unicode name: {:?}", path);
+                            continue;
+                        }
+                    };
+
+                    if name.eq_ignore_ascii_case("light") || name.eq_ignore_ascii_case("dark") {
+                        continue;
+                    }
+
+                    let key = name.to_lowercase();
+                    if seen.insert(key) {
+                        custom.push((name.clone(), Theme::Custom(name)));
+                    }
+                }
+            }
+            Err(err) => {
+                warn!("Failed to read themes directory {:?}: {}", dir, err);
+            }
+        }
+    }
+
+    custom.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    options.extend(custom);
+    options
+}
+
+#[derive(Deserialize)]
+struct ThemeLabelFile {
+    name: Option<String>,
+}
+
+fn theme_label_from_toml(contents: &str) -> Option<String> {
+    let theme: ThemeLabelFile = toml::from_str(contents).ok()?;
+    theme.name
 }
 
 struct CacheController {

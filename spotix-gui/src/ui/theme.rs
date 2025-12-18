@@ -1,8 +1,12 @@
+use std::fs;
+
 use druid::{Color, Env, FontDescriptor, FontFamily, FontWeight, Insets, Key, Size};
+use log::warn;
+use serde::Deserialize;
 
 pub use druid::theme::*;
 
-use crate::data::{AppState, Theme};
+use crate::data::{AppState, Config, Theme};
 
 pub fn grid(m: f64) -> f64 {
     GRID * m
@@ -43,9 +47,20 @@ pub const LINK_ACTIVE_COLOR: Key<Color> = Key::new("app.link-active-color");
 pub const LINK_COLD_COLOR: Key<Color> = Key::new("app.link-cold-color");
 
 pub fn setup(env: &mut Env, state: &AppState) {
-    match state.config.theme {
-        Theme::Light => setup_light_theme(env),
-        Theme::Dark => setup_dark_theme(env),
+    let tone = match &state.config.theme {
+        Theme::Light => {
+            setup_light_theme(env);
+            ThemeTone::Light
+        }
+        Theme::Dark => {
+            setup_dark_theme(env);
+            ThemeTone::Dark
+        }
+        Theme::Custom(name) => setup_custom_theme(env, name).unwrap_or_else(|| {
+            warn!("Theme '{name}' could not be loaded, falling back to Light.");
+            setup_light_theme(env);
+            ThemeTone::Light
+        }),
     };
 
     env.set(WINDOW_BACKGROUND_COLOR, env.get(GREY_700));
@@ -60,12 +75,12 @@ pub fn setup(env: &mut Env, state: &AppState) {
     env.set(FOREGROUND_LIGHT, env.get(GREY_100));
     env.set(FOREGROUND_DARK, env.get(GREY_000));
 
-    match state.config.theme {
-        Theme::Light => {
+    match tone {
+        ThemeTone::Light => {
             env.set(BUTTON_LIGHT, env.get(GREY_700));
             env.set(BUTTON_DARK, env.get(GREY_600));
         }
-        Theme::Dark => {
+        ThemeTone::Dark => {
             env.set(BUTTON_LIGHT, env.get(GREY_600));
             env.set(BUTTON_DARK, env.get(GREY_700));
         }
@@ -126,6 +141,166 @@ pub fn setup(env: &mut Env, state: &AppState) {
     env.set(MENU_BUTTON_BG_INACTIVE, env.get(GREY_600));
     env.set(MENU_BUTTON_FG_ACTIVE, env.get(GREY_000));
     env.set(MENU_BUTTON_FG_INACTIVE, env.get(GREY_100));
+}
+
+#[derive(Copy, Clone, Debug)]
+enum ThemeTone {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Deserialize)]
+struct ThemeFile {
+    name: Option<String>,
+    base: Option<String>,
+    colors: Option<ThemeColors>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ThemeColors {
+    grey_000: Option<String>,
+    grey_100: Option<String>,
+    grey_200: Option<String>,
+    grey_300: Option<String>,
+    grey_400: Option<String>,
+    grey_500: Option<String>,
+    grey_600: Option<String>,
+    grey_700: Option<String>,
+    blue_100: Option<String>,
+    blue_200: Option<String>,
+    red: Option<String>,
+    link_hot: Option<String>,
+    link_active: Option<String>,
+    link_cold: Option<String>,
+}
+
+fn setup_custom_theme(env: &mut Env, name: &str) -> Option<ThemeTone> {
+    let themes_dir = Config::themes_dir()?;
+    let theme = load_theme_by_name(&themes_dir, name)?;
+
+    let tone = parse_theme_tone(theme.base.as_deref());
+    match tone {
+        ThemeTone::Light => setup_light_theme(env),
+        ThemeTone::Dark => setup_dark_theme(env),
+    }
+
+    if let Some(colors) = theme.colors.as_ref() {
+        apply_theme_colors(env, colors);
+    }
+
+    Some(tone)
+}
+
+fn load_theme_by_name(dir: &std::path::Path, name: &str) -> Option<ThemeFile> {
+    let entries = fs::read_dir(dir)
+        .map_err(|err| {
+            warn!("Failed to read themes directory {:?}: {}", dir, err);
+        })
+        .ok()?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let is_toml = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("toml"))
+            .unwrap_or(false);
+        if !is_toml {
+            continue;
+        }
+
+        let contents = match fs::read_to_string(&path) {
+            Ok(contents) => contents,
+            Err(err) => {
+                warn!("Failed to read theme file {:?}: {}", path, err);
+                continue;
+            }
+        };
+        let theme: ThemeFile = match toml::from_str(&contents) {
+            Ok(theme) => theme,
+            Err(err) => {
+                warn!("Failed to parse theme file {:?}: {}", path, err);
+                continue;
+            }
+        };
+
+        let file_name = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("");
+        let matches = theme
+            .name
+            .as_deref()
+            .map(|value| value.eq_ignore_ascii_case(name))
+            .unwrap_or(false)
+            || file_name.eq_ignore_ascii_case(name);
+
+        if matches {
+            return Some(theme);
+        }
+    }
+
+    None
+}
+
+fn parse_theme_tone(base: Option<&str>) -> ThemeTone {
+    match base {
+        Some(value) if value.eq_ignore_ascii_case("dark") => ThemeTone::Dark,
+        Some(value) if value.eq_ignore_ascii_case("light") => ThemeTone::Light,
+        Some(value) => {
+            warn!("Unknown theme base '{value}', defaulting to Light.");
+            ThemeTone::Light
+        }
+        None => ThemeTone::Light,
+    }
+}
+
+fn apply_theme_colors(env: &mut Env, colors: &ThemeColors) {
+    set_color(env, GREY_000, &colors.grey_000, "grey_000");
+    set_color(env, GREY_100, &colors.grey_100, "grey_100");
+    set_color(env, GREY_200, &colors.grey_200, "grey_200");
+    set_color(env, GREY_300, &colors.grey_300, "grey_300");
+    set_color(env, GREY_400, &colors.grey_400, "grey_400");
+    set_color(env, GREY_500, &colors.grey_500, "grey_500");
+    set_color(env, GREY_600, &colors.grey_600, "grey_600");
+    set_color(env, GREY_700, &colors.grey_700, "grey_700");
+    set_color(env, BLUE_100, &colors.blue_100, "blue_100");
+    set_color(env, BLUE_200, &colors.blue_200, "blue_200");
+    set_color(env, RED, &colors.red, "red");
+    set_color(env, LINK_HOT_COLOR, &colors.link_hot, "link_hot");
+    set_color(env, LINK_ACTIVE_COLOR, &colors.link_active, "link_active");
+    set_color(env, LINK_COLD_COLOR, &colors.link_cold, "link_cold");
+}
+
+fn set_color(env: &mut Env, key: Key<Color>, value: &Option<String>, label: &str) {
+    if let Some(raw) = value {
+        match parse_color(raw) {
+            Some(color) => env.set(key, color),
+            None => warn!("Invalid color value for {}: '{}'", label, raw),
+        }
+    }
+}
+
+fn parse_color(value: &str) -> Option<Color> {
+    let value = value.trim();
+    let hex = value.strip_prefix('#').unwrap_or(value);
+
+    match hex.len() {
+        6 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            Some(Color::rgb8(r, g, b))
+        }
+        8 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+            let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+            let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+            let a = u8::from_str_radix(&hex[6..8], 16).ok()?;
+            Some(Color::rgba8(r, g, b, a))
+        }
+        _ => None,
+    }
 }
 
 fn setup_light_theme(env: &mut Env) {
