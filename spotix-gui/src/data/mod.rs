@@ -103,6 +103,7 @@ impl AppState {
         });
         let common_ctx = Arc::new(CommonCtx {
             now_playing: None,
+            now_playing_progress: Duration::ZERO,
             library: Arc::clone(&library),
             show_track_cover: config.show_track_cover,
             nav: Nav::Home,
@@ -256,10 +257,12 @@ impl AppState {
             is_playing: false,
             library: Arc::clone(&self.library),
         });
+        self.common_ctx_mut().now_playing_progress = Duration::ZERO;
     }
 
     pub fn start_playback(&mut self, item: Playable, origin: PlaybackOrigin, progress: Duration) {
         self.common_ctx_mut().now_playing.replace(item.clone());
+        self.common_ctx_mut().now_playing_progress = progress;
         self.playback.state = PlaybackState::Playing;
         self.playback.now_playing.replace(NowPlaying {
             item,
@@ -274,6 +277,7 @@ impl AppState {
         if let Some(now_playing) = &mut self.playback.now_playing {
             now_playing.progress = progress;
         }
+        self.common_ctx_mut().now_playing_progress = progress;
     }
 
     pub fn pause_playback(&mut self) {
@@ -281,6 +285,12 @@ impl AppState {
         if let Some(now_playing) = &mut self.playback.now_playing {
             now_playing.is_playing = false;
         }
+        self.common_ctx_mut().now_playing_progress = self
+            .playback
+            .now_playing
+            .as_ref()
+            .map(|np| np.progress)
+            .unwrap_or_default();
     }
 
     pub fn resume_playback(&mut self) {
@@ -288,6 +298,12 @@ impl AppState {
         if let Some(now_playing) = &mut self.playback.now_playing {
             now_playing.is_playing = true;
         }
+        self.common_ctx_mut().now_playing_progress = self
+            .playback
+            .now_playing
+            .as_ref()
+            .map(|np| np.progress)
+            .unwrap_or_default();
     }
 
     pub fn block_playback(&mut self) {
@@ -298,6 +314,7 @@ impl AppState {
         self.playback.state = PlaybackState::Stopped;
         self.playback.now_playing.take();
         self.common_ctx_mut().now_playing.take();
+        self.common_ctx_mut().now_playing_progress = Duration::ZERO;
     }
 
     pub fn set_queue_behavior(&mut self, queue_behavior: QueueBehavior) {
@@ -558,6 +575,7 @@ impl Shows {
 #[derive(Clone, Data)]
 pub struct CommonCtx {
     pub now_playing: Option<Playable>,
+    pub now_playing_progress: Duration,
     pub library: Arc<Library>,
     pub show_track_cover: bool,
     pub nav: Nav,

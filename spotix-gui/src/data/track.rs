@@ -72,6 +72,8 @@ pub struct TrackLines {
     pub start_time_ms: String,
     pub words: String,
     pub end_time_ms: String,
+    #[serde(skip)]
+    pub next_start_ms: Option<u64>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Hash, Deserialize, Serialize)]

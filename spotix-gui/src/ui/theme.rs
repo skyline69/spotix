@@ -41,6 +41,8 @@ pub const ICON_SIZE_TINY: Size = Size::new(12.0, 12.0);
 pub const ICON_SIZE_SMALL: Size = Size::new(14.0, 14.0);
 pub const ICON_SIZE_MEDIUM: Size = Size::new(16.0, 16.0);
 pub const ICON_SIZE_LARGE: Size = Size::new(22.0, 22.0);
+pub const LYRIC_HIGHLIGHT: Key<Color> = Key::new("app.lyric-highlight");
+pub const LYRIC_PAST: Key<Color> = Key::new("app.lyric-past");
 
 pub const LINK_HOT_COLOR: Key<Color> = Key::new("app.link-hot-color");
 pub const LINK_ACTIVE_COLOR: Key<Color> = Key::new("app.link-active-color");
@@ -91,6 +93,8 @@ pub fn setup(env: &mut Env, state: &AppState) {
 
     env.set(SELECTED_TEXT_BACKGROUND_COLOR, env.get(BLUE_200));
     env.set(SELECTION_TEXT_COLOR, env.get(GREY_700));
+    env.set(LYRIC_HIGHLIGHT, env.get(BLUE_100));
+    env.set(LYRIC_PAST, env.get(GREY_500));
 
     env.set(CURSOR_COLOR, env.get(GREY_000));
 
@@ -172,6 +176,8 @@ struct ThemeColors {
     link_hot: Option<String>,
     link_active: Option<String>,
     link_cold: Option<String>,
+    lyric_highlight: Option<String>,
+    lyric_past: Option<String>,
 }
 
 fn setup_custom_theme(env: &mut Env, name: &str) -> Option<ThemeTone> {
@@ -270,6 +276,13 @@ fn apply_theme_colors(env: &mut Env, colors: &ThemeColors) {
     set_color(env, LINK_HOT_COLOR, &colors.link_hot, "link_hot");
     set_color(env, LINK_ACTIVE_COLOR, &colors.link_active, "link_active");
     set_color(env, LINK_COLD_COLOR, &colors.link_cold, "link_cold");
+    set_color(
+        env,
+        LYRIC_HIGHLIGHT,
+        &colors.lyric_highlight,
+        "lyric_highlight",
+    );
+    set_color(env, LYRIC_PAST, &colors.lyric_past, "lyric_past");
 }
 
 fn set_color(env: &mut Env, key: Key<Color>, value: &Option<String>, label: &str) {
