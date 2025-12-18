@@ -35,6 +35,7 @@ pub fn input_widget() -> impl Widget<AppState> {
                 return;
             }
             ctx.submit_command(cmd::NAVIGATE.with(Nav::SearchResults(query.clone().into())));
+            query.clear();
         }))
         .with_id(cmd::WIDGET_SEARCH_INPUT)
         .expand_width()

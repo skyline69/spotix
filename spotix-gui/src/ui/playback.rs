@@ -13,8 +13,8 @@ use crate::{
     cmd::{self, ADD_TO_QUEUE, SHOW_ARTWORK, TOGGLE_LYRICS},
     controller::PlaybackController,
     data::{
-        AppState, AudioAnalysis, NowPlaying, Playable, Playback, PlaybackOrigin, PlaybackState,
-        QueueBehavior,
+        AppState, AudioAnalysis, Nav, NowPlaying, Playable, Playback, PlaybackOrigin,
+        PlaybackState, QueueBehavior,
     },
     widget::{
         Empty, Maybe, MyWidgetExt, RemoteImage,
@@ -151,7 +151,14 @@ fn cover_widget(size: f64) -> impl Widget<NowPlaying> {
     })
     .fix_size(size, size)
     .clip(Size::new(size, size).to_rounded_rect(4.0))
-    .on_left_click(|ctx, _, _, _| {
+    .on_left_click(|ctx, _, np, _| {
+        if let Some(track) = np.item.track() {
+            if let Some(album) = &track.album {
+                ctx.submit_command(cmd::NAVIGATE.with(Nav::AlbumDetail(album.clone(), None)));
+                return;
+            }
+        }
+        // Fallback: keep existing behavior if we don't have an album link.
         ctx.submit_command(SHOW_ARTWORK);
     })
 }
