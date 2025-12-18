@@ -3,11 +3,13 @@
 Spotix is a fast, native Spotify client written in Rust.
 It focuses on low overhead, a clean UI, and a lightweight runtime (no Electron).
 
-Fork notice
+<img width="1091" height="1019" alt="Spotix UI" src="https://github.com/user-attachments/assets/6f993dd5-8000-407b-8980-9cdc5a0855bc" />
+
+## Fork notice
 - This project is a fork of https://github.com/jpochyla/psst
 - The fork is maintained by skyline69 and diverges in naming, packaging, and ongoing changes
 
-Additional features over upstream psst
+## Additional features over upstream psst
 - Theme support with TOML themes (including custom colors and lyric highlighting)
 - Configurable cache size limit and cache usage display in preferences
 - Playlist pagination toggle and real-time library search (playlists, albums, tracks, podcasts, albums)
@@ -15,12 +17,12 @@ Additional features over upstream psst
 - More fluid seek bar, bottom-bar cover click opens album, and platform release binaries
 - More up-to-date dependencies and ongoing maintenance on the fork
 
-Status
+## Status
 - Early development; expect missing features and rough edges
 - Requires a Spotify Premium account
 
-Screenshot
-![Spotix UI](./spotix-gui/assets/screenshot.png)
+
+
 
 Download
 
