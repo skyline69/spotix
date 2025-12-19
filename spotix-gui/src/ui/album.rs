@@ -10,7 +10,7 @@ use crate::{
     cmd,
     data::{
         Album, AlbumDetail, AlbumLink, AppState, ArtistLink, Cached, CommonCtx, Ctx, Library, Nav,
-        Playable, PlaybackOrigin, Track, WithCtx,
+        Playable, PlaybackOrigin, QueueEntry, Track, WithCtx,
     },
     ui::playable::PlayableIter,
     webapi::WebApi,
@@ -241,6 +241,39 @@ fn album_menu(album: &Arc<Album>, library: &Arc<Library>) -> Menu<AppState> {
         )
         .command(cmd::COPY.with(album.url())),
     );
+
+    let origin = PlaybackOrigin::Album(album.link());
+    let entries: Vector<QueueEntry> = album
+        .clone()
+        .into_tracks_with_context()
+        .iter()
+        .cloned()
+        .map(|track| QueueEntry {
+            item: Playable::Track(track),
+            origin: origin.clone(),
+        })
+        .collect();
+    if !entries.is_empty() {
+        menu = menu.entry(
+            MenuItem::new(
+                LocalizedString::new("menu-item-play-next").with_placeholder("Play Next"),
+            )
+            .command(cmd::QUEUE_INSERT_ENTRIES.with(cmd::QueueInsertRequest {
+                entries: entries.clone(),
+                mode: cmd::QueueInsertMode::Next,
+            })),
+        );
+        menu = menu.entry(
+            MenuItem::new(
+                LocalizedString::new("menu-item-add-to-queue")
+                    .with_placeholder("Add Album to Queue"),
+            )
+            .command(cmd::QUEUE_INSERT_ENTRIES.with(cmd::QueueInsertRequest {
+                entries,
+                mode: cmd::QueueInsertMode::End,
+            })),
+        );
+    }
 
     menu = menu.separator();
 

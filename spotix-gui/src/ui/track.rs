@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use druid::{
     Env, Lens, LensExt, LocalizedString, Menu, MenuItem, Size, TextAlignment, Widget, WidgetExt,
+    im::Vector,
     widget::{CrossAxisAlignment, Either, Flex, Label, LineBreaking, ViewSwitcher},
 };
 use spotix_core::{
@@ -353,6 +354,19 @@ pub fn track_menu(
             );
         }
     }
+
+    let mut next_entries = Vector::new();
+    next_entries.push_back(QueueEntry {
+        item: crate::ui::Playable::Track(track.clone()),
+        origin: origin.clone(),
+    });
+    menu = menu.entry(
+        MenuItem::new(LocalizedString::new("menu-item-play-next").with_placeholder("Play Next"))
+            .command(cmd::QUEUE_INSERT_ENTRIES.with(cmd::QueueInsertRequest {
+                entries: next_entries,
+                mode: cmd::QueueInsertMode::Next,
+            })),
+    );
 
     menu = menu.entry(
         MenuItem::new(

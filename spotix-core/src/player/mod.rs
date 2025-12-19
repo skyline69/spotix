@@ -128,6 +128,8 @@ impl Player {
             PlayerCommand::Configure { config } => self.configure(config),
             PlayerCommand::SetQueueBehavior { behavior } => self.queue.set_behaviour(behavior),
             PlayerCommand::AddToQueue { item } => self.queue.add(item),
+            PlayerCommand::AddNext { item } => self.queue.add_next(item),
+            PlayerCommand::ReplaceQueue { items } => self.queue.replace(items),
             PlayerCommand::SetVolume { volume } => self.set_volume(volume),
         }
     }
@@ -499,6 +501,12 @@ pub enum PlayerCommand {
     },
     AddToQueue {
         item: PlaybackItem,
+    },
+    AddNext {
+        item: PlaybackItem,
+    },
+    ReplaceQueue {
+        items: Vec<PlaybackItem>,
     },
     /// Change playback volume to a value in 0.0..=1.0 range.
     SetVolume {

@@ -670,6 +670,24 @@ fn playlist_menu_ctx(playlist: &WithCtx<Playlist>) -> Menu<AppState> {
         .command(cmd::COPY.with(playlist.url())),
     );
 
+    menu = menu.entry(
+        MenuItem::new(LocalizedString::new("menu-item-play-next").with_placeholder("Play Next"))
+            .command(cmd::QUEUE_INSERT_PLAYLIST.with(cmd::QueuePlaylistRequest {
+                link: playlist.link(),
+                mode: cmd::QueueInsertMode::Next,
+            })),
+    );
+    menu = menu.entry(
+        MenuItem::new(
+            LocalizedString::new("menu-item-add-to-queue")
+                .with_placeholder("Add Playlist to Queue"),
+        )
+        .command(cmd::QUEUE_INSERT_PLAYLIST.with(cmd::QueuePlaylistRequest {
+            link: playlist.link(),
+            mode: cmd::QueueInsertMode::End,
+        })),
+    );
+
     if library.contains_playlist(playlist) {
         let created_by_user = library.is_created_by_user(playlist);
 

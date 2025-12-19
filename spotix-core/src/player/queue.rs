@@ -45,18 +45,40 @@ impl Queue {
         self.compute_positions();
     }
 
+    pub fn replace(&mut self, items: Vec<PlaybackItem>) {
+        let current = self.get_current().copied();
+        self.items = items;
+        self.user_items.clear();
+        self.user_items_position = 0;
+        self.positions.clear();
+        self.position = current
+            .and_then(|item| self.items.iter().position(|candidate| *candidate == item))
+            .unwrap_or(0);
+        self.compute_positions();
+    }
+
     pub fn add(&mut self, item: PlaybackItem) {
         self.user_items.push(item);
     }
 
+    pub fn add_next(&mut self, item: PlaybackItem) {
+        let insert_index = self.items.len();
+        self.items.push(item);
+        if self.positions.is_empty() {
+            self.positions.push(insert_index);
+            self.position = 0;
+            return;
+        }
+        let insert_pos = (self.position + 1).min(self.positions.len());
+        self.positions.insert(insert_pos, insert_index);
+    }
+
     fn handle_added_queue(&mut self) {
         if self.user_items.len() > self.user_items_position {
-            self.items.insert(
-                self.positions.len(),
-                self.user_items[self.user_items_position],
-            );
-            self.positions
-                .insert(self.position + 1, self.positions.len());
+            let next_index = self.positions.len();
+            self.items
+                .insert(next_index, self.user_items[self.user_items_position]);
+            self.positions.push(next_index);
             self.user_items_position += 1;
         }
     }

@@ -1,20 +1,32 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use druid::{
-    BoxConstraints, Cursor, Data, Env, Event, EventCtx, LayoutCtx, LifeCycle, LifeCycleCtx,
-    MouseButton, PaintCtx, Point, Rect, RenderContext, Size, UpdateCtx, Widget, WidgetExt,
-    WidgetPod,
-    kurbo::{Affine, BezPath},
-    widget::{CrossAxisAlignment, Either, Flex, Label, LineBreaking, Spinner, ViewSwitcher},
+    BoxConstraints, Cursor, Data, Env, Event, EventCtx, LayoutCtx, LensExt, LifeCycle,
+    LifeCycleCtx, Menu, MenuItem, MouseButton, PaintCtx, Point, Rect, RenderContext, Size, Target,
+    UpdateCtx, Widget, WidgetExt, WidgetPod,
+    im::Vector,
+    kurbo::{Affine, BezPath, Circle, Line},
+    lens::Map,
+    widget::{
+        Align, Controller, CrossAxisAlignment, Either, Flex, Label, LineBreaking, List, Painter,
+        Scroll, SizedBox, Spinner, ViewSwitcher,
+    },
 };
 use itertools::Itertools;
+use spotix_core::item_id::ItemId;
 
 use crate::{
-    cmd::{self, ADD_TO_QUEUE, SHOW_ARTWORK, TOGGLE_LYRICS},
+    cmd::{
+        self, ADD_TO_QUEUE, CLEAR_QUEUE, QUEUE_DRAG_BEGIN, QUEUE_DRAG_END, QUEUE_DRAG_OVER,
+        REMOVE_FROM_QUEUE, SHOW_ARTWORK, TOGGLE_LYRICS, TOGGLE_QUEUE_PANEL,
+    },
     controller::PlaybackController,
     data::{
-        AppState, AudioAnalysis, Nav, NowPlaying, Playable, Playback, PlaybackOrigin,
-        PlaybackState, QueueBehavior,
+        AppState, AudioAnalysis, Library, Nav, NowPlaying, Playable, Playback, PlaybackOrigin,
+        PlaybackPanelTab, PlaybackState, QueueBehavior, QueueDragState, QueueEntry,
     },
     widget::{
         Empty, Maybe, MyWidgetExt, RemoteImage,
@@ -25,17 +37,14 @@ use crate::{
 use super::{episode, library, theme, track, utils};
 
 pub fn panel_widget() -> impl Widget<AppState> {
-    let seek_bar = Maybe::or_empty(SeekBar::new).lens(Playback::now_playing);
-    let item_info = Maybe::or_empty(playing_item_widget).lens(Playback::now_playing);
-    let controls = Either::new(
-        |playback, _| playback.now_playing.is_some(),
-        player_widget(),
-        Empty,
-    );
+    let seek_bar =
+        Maybe::or_empty(SeekBar::new).lens(AppState::playback.then(Playback::now_playing));
+    let item_info =
+        Maybe::or_empty(playing_item_widget).lens(AppState::playback.then(Playback::now_playing));
+    let controls = player_widget();
     Flex::column()
         .with_child(seek_bar)
         .with_child(BarLayout::new(item_info, controls))
-        .lens(AppState::playback)
         .controller(PlaybackController::new())
         .on_command(ADD_TO_QUEUE, |_, _, data| {
             data.info_alert("Track added to queue.")
@@ -176,7 +185,7 @@ fn playback_origin_icon(origin: &PlaybackOrigin) -> &'static SvgIcon {
     }
 }
 
-fn player_widget() -> impl Widget<Playback> {
+fn player_widget() -> impl Widget<AppState> {
     Flex::row()
         .with_child(
             small_button_widget(&icons::SKIP_BACK).on_left_click(|ctx, _, _, _| {
@@ -184,7 +193,7 @@ fn player_widget() -> impl Widget<Playback> {
             }),
         )
         .with_default_spacer()
-        .with_child(player_play_pause_widget())
+        .with_child(player_play_pause_widget().lens(AppState::playback))
         .with_default_spacer()
         .with_child(
             small_button_widget(&icons::SKIP_FORWARD).on_left_click(|ctx, _, _, _| {
@@ -192,17 +201,702 @@ fn player_widget() -> impl Widget<Playback> {
             }),
         )
         .with_default_spacer()
-        .with_child(queue_behavior_widget())
+        .with_child(queue_behavior_widget().lens(AppState::playback))
         .with_default_spacer()
-        .with_child(Maybe::or_empty(durations_widget).lens(Playback::now_playing))
         .with_child(
-            small_button_widget(&icons::MUSIC_NOTE)
-                .align_right()
-                .on_left_click(|ctx, _, _, _| {
-                    ctx.submit_command(TOGGLE_LYRICS);
-                }),
+            Maybe::or_empty(durations_widget).lens(AppState::playback.then(Playback::now_playing)),
+        )
+        .with_child(Either::new(
+            |data: &AppState, _| data.playback.now_playing.is_some(),
+            Empty,
+            durations_placeholder_widget(),
+        ))
+        .with_spacer(theme::grid(1.0))
+        .with_child(
+            toggle_button_widget(&icons::PLAYLIST, |data, _| data.playback_panel_open)
+                .padding_right(theme::grid(0.5))
+                .on_left_click(|ctx, _, _, _| ctx.submit_command(TOGGLE_QUEUE_PANEL)),
+        )
+        .with_child(
+            toggle_button_widget(&icons::MUSIC_NOTE, |data, _| {
+                matches!(data.nav, Nav::Lyrics)
+            })
+            .align_right()
+            .on_left_click(|ctx, _, _, _| {
+                ctx.submit_command(TOGGLE_LYRICS);
+            }),
         )
         .padding(theme::grid(2.0))
+}
+
+pub fn queue_panel_widget() -> impl Widget<AppState> {
+    let tabs = Flex::row()
+        .with_child(panel_tab_button("Queue", PlaybackPanelTab::Queue))
+        .with_spacer(theme::grid(1.0))
+        .with_child(panel_tab_button(
+            "Recently Played",
+            PlaybackPanelTab::RecentlyPlayed,
+        ))
+        .padding((theme::grid(1.5), theme::grid(1.0)));
+
+    let content = ViewSwitcher::new(
+        |data: &AppState, _| data.playback_panel_tab,
+        |tab, _, _| match tab {
+            PlaybackPanelTab::Queue => Scroll::new(List::new(queue_panel_row_widget))
+                .vertical()
+                .lens(Map::new(queue_entries, |_, _| {}))
+                .boxed(),
+            PlaybackPanelTab::RecentlyPlayed => Scroll::new(List::new(queue_panel_row_widget))
+                .vertical()
+                .lens(Map::new(|data: &AppState| recent_entries(data), |_, _| {}))
+                .boxed(),
+        },
+    );
+
+    Flex::column()
+        .with_child(tabs.background(theme::BACKGROUND_DARK))
+        .with_child(queue_tabs_divider())
+        .with_flex_child(
+            content.padding(0.0).background(theme::BACKGROUND_LIGHT),
+            1.0,
+        )
+        .fix_width(theme::grid(36.0))
+        .background(theme::BACKGROUND_DARK)
+}
+
+fn panel_tab_button(label: &'static str, tab: PlaybackPanelTab) -> impl Widget<AppState> {
+    Label::new(label)
+        .with_font(theme::UI_FONT_MEDIUM)
+        .with_text_color(theme::FOREGROUND_LIGHT)
+        .padding((theme::grid(1.0), theme::grid(0.5)))
+        .link()
+        .rounded(theme::BUTTON_BORDER_RADIUS)
+        .active(move |data: &AppState, _| data.playback_panel_tab == tab)
+        .on_left_click(move |_, _, data: &mut AppState, _| {
+            data.playback_panel_tab = tab;
+        })
+}
+
+#[derive(Clone, Data)]
+struct QueueRow {
+    entry: QueueEntry,
+    position: usize,
+    absolute_index: usize,
+    #[data(ignore)]
+    entries: Arc<Vector<QueueEntry>>,
+    library: Arc<Library>,
+    is_now_playing: bool,
+    show_remove: bool,
+    is_dragging: bool,
+    is_drag_over: bool,
+    drag_active: bool,
+    drag_source_set: bool,
+    can_drag: bool,
+    insert_after: bool,
+    #[data(ignore)]
+    drag_start: Option<Point>,
+}
+
+#[derive(Clone, Data)]
+struct QueueHeader {
+    title: Arc<str>,
+    subtitle: Option<Arc<str>>,
+}
+
+#[derive(Clone, Data)]
+enum QueuePanelRow {
+    Header(QueueHeader),
+    Item(QueueRow),
+    Divider(QueueDivider),
+}
+
+#[derive(Clone, Data)]
+struct QueueDivider;
+
+fn queue_entries(data: &AppState) -> Vector<QueuePanelRow> {
+    let mut entries = Vector::new();
+    if let Some(now_playing) = &data.playback.now_playing {
+        if let Some(position) = data
+            .playback
+            .queue
+            .iter()
+            .position(|entry| entry.item.id() == now_playing.item.id())
+        {
+            for entry in data.playback.queue.iter().skip(position) {
+                entries.push_back(entry.clone());
+            }
+        } else {
+            entries = data.playback.queue.clone();
+        }
+    } else {
+        entries = data.playback.queue.clone();
+    }
+    for entry in data.added_queue.iter() {
+        entries.push_back(entry.clone());
+    }
+    build_queue_panel_rows(data, entries)
+}
+
+fn recent_entries(data: &AppState) -> Vector<QueuePanelRow> {
+    if data.recently_played.is_empty() {
+        return Vector::new();
+    }
+    let rows = to_queue_rows(
+        data.recently_played.clone(),
+        Arc::clone(&data.library),
+        QueueRowArgs {
+            now_playing_id: None,
+            drag: &data.queue_drag,
+            can_drag: false,
+            base_queue_index: 0,
+            upcoming_len: 0,
+            full_queue_len: 0,
+        },
+    );
+    let mut items = Vector::new();
+    items.push_back(QueuePanelRow::Header(QueueHeader {
+        title: Arc::from("Recently played"),
+        subtitle: None,
+    }));
+    for row in rows {
+        items.push_back(QueuePanelRow::Item(row));
+    }
+    items
+}
+
+struct QueueRowArgs<'a> {
+    now_playing_id: Option<ItemId>,
+    drag: &'a QueueDragState,
+    can_drag: bool,
+    base_queue_index: usize,
+    upcoming_len: usize,
+    full_queue_len: usize,
+}
+
+fn to_queue_rows(
+    entries: Vector<QueueEntry>,
+    library: Arc<Library>,
+    args: QueueRowArgs<'_>,
+) -> Vector<QueueRow> {
+    let shared = Arc::new(entries);
+    let mut rows = Vector::new();
+    for (position, entry) in shared.iter().enumerate() {
+        let absolute_index = if args.can_drag {
+            if position < args.upcoming_len {
+                args.base_queue_index + position
+            } else {
+                args.full_queue_len + (position - args.upcoming_len)
+            }
+        } else {
+            position
+        };
+        let is_now_playing = args.now_playing_id.is_some_and(|id| entry.item.id() == id);
+        let drag_active = args.drag.active;
+        rows.push_back(QueueRow {
+            entry: entry.clone(),
+            position,
+            absolute_index,
+            entries: Arc::clone(&shared),
+            library: Arc::clone(&library),
+            is_now_playing,
+            show_remove: false,
+            is_dragging: drag_active && args.drag.source_index == Some(absolute_index),
+            is_drag_over: drag_active && args.drag.over_index == Some(absolute_index),
+            drag_active,
+            drag_source_set: args.drag.source_index.is_some(),
+            can_drag: args.can_drag && !is_now_playing,
+            insert_after: args.drag.insert_after,
+            drag_start: args.drag.start_pos,
+        });
+    }
+    rows
+}
+
+fn build_queue_panel_rows(data: &AppState, entries: Vector<QueueEntry>) -> Vector<QueuePanelRow> {
+    if entries.is_empty() {
+        return Vector::new();
+    }
+    let now_playing_id = data.playback.now_playing.as_ref().map(|np| np.item.id());
+    let base_queue_index = data
+        .playback
+        .queue
+        .iter()
+        .position(|entry| now_playing_id.is_some_and(|id| entry.item.id() == id))
+        .unwrap_or(0);
+    let full_queue_len = data.playback.queue.len();
+    let upcoming_len = full_queue_len.saturating_sub(base_queue_index);
+    let rows = to_queue_rows(
+        entries,
+        Arc::clone(&data.library),
+        QueueRowArgs {
+            now_playing_id,
+            drag: &data.queue_drag,
+            can_drag: true,
+            base_queue_index,
+            upcoming_len,
+            full_queue_len,
+        },
+    );
+
+    let mut result = Vector::new();
+    result.push_back(QueuePanelRow::Header(QueueHeader {
+        title: Arc::from("Now playing"),
+        subtitle: None,
+    }));
+
+    let mut remaining = Vector::new();
+    if let Some(now_id) = now_playing_id {
+        for row in rows {
+            if row.entry.item.id() == now_id && result.len() == 1 {
+                result.push_back(QueuePanelRow::Item(row));
+            } else {
+                remaining.push_back(row);
+            }
+        }
+    } else {
+        result.push_back(QueuePanelRow::Item(rows[0].clone()));
+        for row in rows.iter().skip(1) {
+            remaining.push_back(row.clone());
+        }
+    }
+
+    if !remaining.is_empty() {
+        let subtitle = data
+            .playback
+            .now_playing
+            .as_ref()
+            .map(|np| Arc::from(np.origin.to_string()));
+        result.push_back(QueuePanelRow::Divider(QueueDivider));
+        result.push_back(QueuePanelRow::Header(QueueHeader {
+            title: Arc::from("Next from"),
+            subtitle,
+        }));
+        for mut row in remaining {
+            row.show_remove = true;
+            result.push_back(QueuePanelRow::Item(row));
+        }
+    }
+
+    result
+}
+
+fn queue_panel_row_widget() -> impl Widget<QueuePanelRow> {
+    ViewSwitcher::new(
+        |row: &QueuePanelRow, _| match row {
+            QueuePanelRow::Header(_) => 0,
+            QueuePanelRow::Item(_) => 1,
+            QueuePanelRow::Divider(_) => 2,
+        },
+        |selector, _, _| match *selector {
+            0 => queue_header_widget().boxed(),
+            1 => queue_row_widget().boxed(),
+            _ => queue_section_divider_widget().boxed(),
+        },
+    )
+}
+
+fn queue_section_divider_widget() -> impl Widget<QueuePanelRow> {
+    Painter::new(|ctx, _, env| {
+        let size = ctx.size();
+        let line = Line::new((0.0, 0.0), (size.width, 0.0));
+        ctx.stroke(line, &env.get(theme::BORDER_DARK), 1.0);
+    })
+    .fix_height(1.0)
+    .expand_width()
+    .background(theme::BACKGROUND_LIGHT)
+}
+
+fn queue_tabs_divider() -> impl Widget<AppState> {
+    Painter::new(|ctx, _, env| {
+        let size = ctx.size();
+        let line = Line::new((0.0, 0.0), (size.width, 0.0));
+        ctx.stroke(line, &env.get(theme::BORDER_DARK), 1.0);
+    })
+    .fix_height(1.0)
+}
+
+fn queue_header_widget() -> impl Widget<QueuePanelRow> {
+    let title = Label::dynamic(|row: &QueuePanelRow, _| match row {
+        QueuePanelRow::Header(header) => header.title.to_string(),
+        _ => String::new(),
+    })
+    .with_font(theme::UI_FONT_MEDIUM)
+    .with_text_color(theme::FOREGROUND_LIGHT);
+
+    fn subtitle_text(row: &QueuePanelRow, _: &Env) -> String {
+        match row {
+            QueuePanelRow::Header(header) => header
+                .subtitle
+                .as_ref()
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+
+    fn inline_next_from_text(row: &QueuePanelRow, _: &Env) -> String {
+        match row {
+            QueuePanelRow::Header(header) if header.title.as_ref() == "Next from" => header
+                .subtitle
+                .as_ref()
+                .filter(|s| !s.is_empty())
+                .map(|s| format!("Next from: {}", s))
+                .unwrap_or_else(|| "Next from".to_string()),
+            _ => String::new(),
+        }
+    }
+
+    fn has_subtitle(row: &QueuePanelRow, _: &Env) -> bool {
+        match row {
+            QueuePanelRow::Header(header) => header
+                .subtitle
+                .as_ref()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    let clear_button = queue_clear_button();
+    Either::new(
+        |row: &QueuePanelRow, _| match row {
+            QueuePanelRow::Header(header) => header.title.as_ref() == "Next from",
+            _ => false,
+        },
+        Label::dynamic(inline_next_from_text)
+            .with_font(theme::UI_FONT_MEDIUM)
+            .with_text_color(theme::FOREGROUND_LIGHT)
+            .with_line_break_mode(LineBreaking::Clip)
+            .padding((theme::grid(1.0), theme::grid(0.5)))
+            .expand_width()
+            .background(theme::BACKGROUND_DARK),
+        Flex::column()
+            .cross_axis_alignment(CrossAxisAlignment::Start)
+            .with_child(
+                Flex::row()
+                    .with_flex_child(title, 1.0)
+                    .with_child(clear_button),
+            )
+            .with_child(Either::new(
+                has_subtitle,
+                Label::dynamic(subtitle_text)
+                    .with_text_size(theme::TEXT_SIZE_SMALL)
+                    .with_text_color(theme::PLACEHOLDER_COLOR),
+                Empty,
+            ))
+            .padding((theme::grid(1.0), theme::grid(0.5)))
+            .expand_width()
+            .background(theme::BACKGROUND_DARK),
+    )
+}
+
+fn queue_clear_button() -> impl Widget<QueuePanelRow> {
+    Either::new(
+        |row: &QueuePanelRow, _| matches!(row, QueuePanelRow::Header(header) if header.title.as_ref() == "Now playing"),
+        Label::new("Clear")
+            .with_text_size(theme::TEXT_SIZE_SMALL)
+            .with_text_color(theme::PLACEHOLDER_COLOR)
+            .padding((theme::grid(0.6), theme::grid(0.2)))
+            .link()
+            .rounded(theme::BUTTON_BORDER_RADIUS)
+            .on_left_click(|ctx, _, _, _| {
+                ctx.submit_command(CLEAR_QUEUE);
+            }),
+        Empty,
+    )
+}
+
+fn queue_row_widget() -> impl Widget<QueuePanelRow> {
+    let title = Label::dynamic(|row: &QueuePanelRow, _| match row {
+        QueuePanelRow::Item(item) => item.entry.item.name().to_string(),
+        _ => String::new(),
+    })
+    .with_line_break_mode(LineBreaking::Clip)
+    .with_font(theme::UI_FONT_MEDIUM);
+    let duration = Label::dynamic(|row: &QueuePanelRow, _| match row {
+        QueuePanelRow::Item(item) => utils::as_minutes_and_seconds(item.entry.item.duration()),
+        _ => String::new(),
+    })
+    .with_text_size(theme::TEXT_SIZE_SMALL)
+    .with_text_color(theme::PLACEHOLDER_COLOR)
+    .with_line_break_mode(LineBreaking::Clip);
+    let subtitle = Label::dynamic(|row: &QueuePanelRow, _| match row {
+        QueuePanelRow::Item(item) => match &item.entry.item {
+            Playable::Track(track) => track.artist_names(),
+            Playable::Episode(episode) => episode.show.name.as_ref().to_string(),
+        },
+        _ => String::new(),
+    })
+    .with_line_break_mode(LineBreaking::Clip)
+    .with_text_size(theme::TEXT_SIZE_SMALL)
+    .with_text_color(theme::PLACEHOLDER_COLOR);
+
+    let cover = queue_cover_widget(theme::grid(4.0));
+    let remove_button = queue_remove_slot();
+    let title_row = Flex::row()
+        .with_flex_child(title, 1.0)
+        .with_child(SizedBox::new(Align::right(duration)).fix_width(theme::grid(5.0)));
+
+    Flex::row()
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .with_child(cover)
+        .with_spacer(theme::grid(1.0))
+        .with_flex_child(
+            Flex::column()
+                .cross_axis_alignment(CrossAxisAlignment::Start)
+                .with_child(title_row)
+                .with_child(subtitle),
+            1.0,
+        )
+        .with_spacer(theme::grid(1.0))
+        .with_child(remove_button)
+        .padding(theme::grid(1.0))
+        .expand_width()
+        .background(queue_row_background())
+        .controller(QueueRowDragController)
+        .context_menu(|row: &QueuePanelRow| match row {
+            QueuePanelRow::Item(item) => match &item.entry.item {
+                Playable::Track(track) => {
+                    let mut menu =
+                        track::track_menu(track, &item.library, &item.entry.origin, usize::MAX);
+                    if item.show_remove {
+                        menu = menu.entry(
+                            MenuItem::new("Remove from Queue")
+                                .command(REMOVE_FROM_QUEUE.with(item.absolute_index)),
+                        );
+                    }
+                    menu
+                }
+                Playable::Episode(episode) => {
+                    let mut menu = episode::episode_menu(episode, &item.library);
+                    if item.show_remove {
+                        menu = menu.entry(
+                            MenuItem::new("Remove from Queue")
+                                .command(REMOVE_FROM_QUEUE.with(item.absolute_index)),
+                        );
+                    }
+                    menu
+                }
+            },
+            _ => Menu::empty(),
+        })
+}
+
+fn queue_remove_slot() -> impl Widget<QueuePanelRow> {
+    let width = theme::grid(4.0);
+    let button = queue_remove_icon()
+        .fix_size(theme::ICON_SIZE_SMALL.width, theme::ICON_SIZE_SMALL.height)
+        .padding(theme::grid(1.0))
+        .link()
+        .circle()
+        .on_left_click(|ctx, _, row: &mut QueuePanelRow, _| {
+            if let QueuePanelRow::Item(item) = row {
+                ctx.submit_command(REMOVE_FROM_QUEUE.with(item.absolute_index));
+                ctx.set_handled();
+            }
+        });
+    let button = SizedBox::new(button).fix_width(width);
+    let spacer = SizedBox::empty().fix_width(width);
+    Either::new(
+        |row: &QueuePanelRow, _| matches!(row, QueuePanelRow::Item(item) if item.show_remove),
+        button,
+        spacer,
+    )
+}
+
+fn queue_remove_icon() -> impl Widget<QueuePanelRow> {
+    Painter::new(|ctx, _, env| {
+        let size = ctx.size();
+        let center = size.to_rect().center();
+        let radius = (size.width.min(size.height) * 0.5) - 1.0;
+        let color = env.get(theme::PLACEHOLDER_COLOR);
+        ctx.stroke(Circle::new(center, radius), &color, 1.0);
+        let half = radius * 0.6;
+        let line = Line::new((center.x - half, center.y), (center.x + half, center.y));
+        ctx.stroke(line, &color, 1.4);
+    })
+}
+
+#[derive(Default)]
+struct QueueRowDragController;
+
+impl<W> Controller<QueuePanelRow, W> for QueueRowDragController
+where
+    W: Widget<QueuePanelRow>,
+{
+    fn event(
+        &mut self,
+        child: &mut W,
+        ctx: &mut EventCtx,
+        event: &Event,
+        data: &mut QueuePanelRow,
+        env: &Env,
+    ) {
+        match event {
+            Event::MouseDown(mouse) if mouse.button == MouseButton::Left => {
+                if let QueuePanelRow::Item(item) = data
+                    && item.can_drag
+                    && !queue_remove_hitbox(item, mouse.pos, ctx.size())
+                {
+                    ctx.submit_command(
+                        QUEUE_DRAG_BEGIN
+                            .with(cmd::QueueDragBegin {
+                                index: item.absolute_index,
+                                start_pos: mouse.window_pos,
+                            })
+                            .to(Target::Global),
+                    );
+                }
+            }
+            Event::MouseMove(mouse) => {
+                if let QueuePanelRow::Item(item) = data {
+                    let dragging =
+                        item.drag_source_set && mouse.buttons.contains(MouseButton::Left);
+                    let cursor = queue_drag_cursor(dragging);
+                    ctx.set_cursor(&cursor);
+                    if item.can_drag {
+                        if !mouse.buttons.contains(MouseButton::Left) {
+                            child.event(ctx, event, data, env);
+                            return;
+                        }
+                        if !item.drag_active
+                            && item.drag_source_set
+                            && let Some(start) = item.drag_start
+                        {
+                            let delta = mouse.window_pos - start;
+                            if delta.hypot() <= 4.0 {
+                                child.event(ctx, event, data, env);
+                                return;
+                            }
+                        }
+                        let insert_after = mouse.pos.y > ctx.size().height * 0.5;
+                        if item.drag_active
+                            && item.is_drag_over
+                            && item.insert_after == insert_after
+                        {
+                            child.event(ctx, event, data, env);
+                            return;
+                        }
+                        ctx.submit_command(
+                            QUEUE_DRAG_OVER
+                                .with(cmd::QueueDragOver {
+                                    index: item.absolute_index,
+                                    insert_after,
+                                })
+                                .to(Target::Global),
+                        );
+                    }
+                }
+            }
+            Event::MouseUp(mouse) if mouse.button == MouseButton::Left => {
+                child.event(ctx, event, data, env);
+                if ctx.is_handled() {
+                    return;
+                }
+                if let QueuePanelRow::Item(item) = data
+                    && item.drag_active
+                {
+                    ctx.submit_command(QUEUE_DRAG_END.to(Target::Global));
+                } else if let QueuePanelRow::Item(item) = data
+                    && ctx.is_hot()
+                {
+                    ctx.submit_command(cmd::PLAY_QUEUE_ENTRIES.with(cmd::QueuePlayRequest {
+                        entries: (*item.entries).clone(),
+                        position: item.position,
+                    }));
+                }
+                return;
+            }
+            _ => {}
+        }
+        child.event(ctx, event, data, env);
+    }
+}
+
+fn queue_remove_hitbox(item: &QueueRow, mouse_pos: Point, size: Size) -> bool {
+    if !item.show_remove {
+        return false;
+    }
+    let hit_width = theme::grid(4.0);
+    mouse_pos.x >= size.width - hit_width
+}
+
+#[allow(deprecated)]
+fn queue_drag_cursor(dragging: bool) -> Cursor {
+    if dragging {
+        Cursor::OpenHand
+    } else {
+        Cursor::Pointer
+    }
+}
+
+fn queue_row_background() -> druid::widget::Painter<QueuePanelRow> {
+    druid::widget::Painter::new(|ctx, row: &QueuePanelRow, env| {
+        let mut color = if ctx.is_active() {
+            env.get(theme::GREY_500)
+        } else if ctx.is_hot() {
+            env.get(theme::GREY_600)
+        } else {
+            env.get(theme::BACKGROUND_LIGHT)
+        };
+        if let QueuePanelRow::Item(item) = row
+            && item.is_drag_over
+        {
+            color = env.get(theme::GREY_500);
+        }
+        let rect = ctx.size().to_rect();
+        ctx.fill(rect, &color);
+
+        if let QueuePanelRow::Item(item) = row
+            && item.is_drag_over
+        {
+            let y = if item.insert_after {
+                rect.y1 - 1.0
+            } else {
+                rect.y0 + 1.0
+            };
+            let line = Line::new((rect.x0 + theme::grid(6.0), y), (rect.x1, y));
+            ctx.stroke(line, &env.get(theme::BLUE_100), 2.0);
+        }
+
+        if ctx.is_hot() && !matches!(row, QueuePanelRow::Item(item) if item.drag_active) {
+            let padding = theme::grid(1.0);
+            let cover_size = theme::grid(4.0);
+            let cover_rect = Rect::from_origin_size(
+                Point::new(padding, padding),
+                Size::new(cover_size, cover_size),
+            );
+            ctx.fill(cover_rect, &env.get(theme::GREY_600).with_alpha(0.6));
+
+            let center = cover_rect.center();
+            let icon_size = theme::grid(2.0);
+            let half = icon_size * 0.5;
+            let mut path = BezPath::new();
+            path.move_to((center.x - half * 0.4, center.y - half));
+            path.line_to((center.x - half * 0.4, center.y + half));
+            path.line_to((center.x + half, center.y));
+            path.close_path();
+            ctx.fill(path, &env.get(theme::FOREGROUND_LIGHT));
+        }
+    })
+}
+
+fn queue_cover_widget(size: f64) -> impl Widget<QueuePanelRow> {
+    RemoteImage::new(
+        utils::placeholder_widget(),
+        move |row: &QueuePanelRow, _| match row {
+            QueuePanelRow::Item(item) => match &item.entry.item {
+                Playable::Track(track) => track
+                    .album
+                    .as_ref()
+                    .and_then(|album| album.image(size, size).map(|img| img.url.clone())),
+                Playable::Episode(episode) => episode.image(size, size).map(|img| img.url.clone()),
+            },
+            _ => None,
+        },
+    )
+    .fix_size(size, size)
+    .clip(Size::new(size, size).to_rounded_rect(4.0))
 }
 
 fn player_play_pause_widget() -> impl Widget<Playback> {
@@ -234,7 +928,14 @@ fn player_play_pause_widget() -> impl Widget<Playback> {
                 .border(theme::GREY_500, 1.0)
                 .on_left_click(|ctx, _, _, _| ctx.submit_command(cmd::PLAY_RESUME))
                 .boxed(),
-            PlaybackState::Stopped => Empty.boxed(),
+            PlaybackState::Stopped => icons::PLAY
+                .scale((theme::grid(3.0), theme::grid(3.0)))
+                .with_color(theme::GREY_600)
+                .padding(theme::grid(1.0))
+                .link()
+                .circle()
+                .border(theme::GREY_600, 1.0)
+                .boxed(),
         },
     )
 }
@@ -280,6 +981,43 @@ fn small_button_widget<T: Data>(svg: &SvgIcon) -> impl Widget<T> {
         .rounded(theme::BUTTON_BORDER_RADIUS)
 }
 
+fn toggle_button_widget(
+    svg: &'static SvgIcon,
+    is_active: impl Fn(&AppState, &Env) -> bool + 'static,
+) -> impl Widget<AppState> {
+    ViewSwitcher::new(
+        move |data: &AppState, env| is_active(data, env),
+        move |active, _, _| {
+            let icon = svg
+                .scale((theme::grid(2.0), theme::grid(2.0)))
+                .with_color(if *active {
+                    theme::PLAYBACK_TOGGLE_FG_ACTIVE
+                } else {
+                    theme::ICON_COLOR
+                });
+            let base_color = if *active {
+                theme::PLAYBACK_TOGGLE_BG_ACTIVE
+            } else {
+                theme::PLAYBACK_TOGGLE_BG_INACTIVE
+            };
+            icon.padding(theme::grid(0.75))
+                .background(Painter::new(move |ctx, _, env| {
+                    let base_color = base_color.clone();
+                    let color = if ctx.is_hot() {
+                        env.get(theme::LINK_HOT_COLOR)
+                    } else {
+                        env.get(base_color)
+                    };
+                    let bounds = ctx
+                        .size()
+                        .to_rounded_rect(env.get(theme::BUTTON_BORDER_RADIUS));
+                    ctx.fill(bounds, &color);
+                }))
+                .boxed()
+        },
+    )
+}
+
 fn faded_button_widget<T: Data>(svg: &SvgIcon) -> impl Widget<T> {
     svg.scale((theme::grid(2.0), theme::grid(2.0)))
         .with_color(theme::PLACEHOLDER_COLOR)
@@ -299,6 +1037,13 @@ fn durations_widget() -> impl Widget<NowPlaying> {
     .with_text_size(theme::TEXT_SIZE_SMALL)
     .with_text_color(theme::PLACEHOLDER_COLOR)
     .fix_width(theme::grid(8.0))
+}
+
+fn durations_placeholder_widget() -> impl Widget<AppState> {
+    Label::new("--:-- / --:--")
+        .with_text_size(theme::TEXT_SIZE_SMALL)
+        .with_text_color(theme::PLACEHOLDER_COLOR)
+        .fix_width(theme::grid(8.0))
 }
 
 struct BarLayout<T, I, P> {

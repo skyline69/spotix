@@ -44,8 +44,8 @@ pub use crate::data::{
     find::{FindQuery, Finder, MatchFindQuery},
     nav::{Nav, Route, SpotifyUrl},
     playback::{
-        NowPlaying, Playable, Playback, PlaybackOrigin, PlaybackPayload, PlaybackState,
-        QueueBehavior, QueueEntry,
+        NowPlaying, Playable, Playback, PlaybackOrigin, PlaybackPanelTab, PlaybackPayload,
+        PlaybackState, QueueBehavior, QueueEntry,
     },
     playlist::{
         Playlist, PlaylistAddTrack, PlaylistDetail, PlaylistLink, PlaylistRemoveTrack,
@@ -76,6 +76,9 @@ pub struct AppState {
     pub config: Config,
     pub preferences: Preferences,
     pub playback: Playback,
+    pub playback_panel_open: bool,
+    pub playback_panel_tab: PlaybackPanelTab,
+    pub recently_played: Vector<QueueEntry>,
     pub search: Search,
     pub recommend: Recommend,
     pub album_detail: AlbumDetail,
@@ -88,8 +91,21 @@ pub struct AppState {
     pub alerts: Vector<Alert>,
     pub finder: Finder,
     pub added_queue: Vector<QueueEntry>,
+    pub queue_drag: QueueDragState,
     pub lyrics: Promise<Vector<TrackLines>>,
     pub credits: Option<TrackCredits>,
+}
+
+#[derive(Clone, Data, Default, Lens)]
+pub struct QueueDragState {
+    pub active: bool,
+    pub source_index: Option<usize>,
+    pub over_index: Option<usize>,
+    pub insert_after: bool,
+    pub last_over_index: Option<usize>,
+    pub last_insert_after: bool,
+    #[data(ignore)]
+    pub start_pos: Option<druid::kurbo::Point>,
 }
 
 impl AppState {
@@ -129,7 +145,11 @@ impl AppState {
                 lastfm_auth_result: None,
             },
             playback,
+            playback_panel_open: false,
+            playback_panel_tab: PlaybackPanelTab::Queue,
+            recently_played: Vector::new(),
             added_queue: Vector::new(),
+            queue_drag: QueueDragState::default(),
             search: Search {
                 input: "".into(),
                 topic: None,

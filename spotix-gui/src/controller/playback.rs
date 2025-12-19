@@ -9,7 +9,7 @@ use std::{
 
 use crossbeam_channel::Sender;
 use druid::{
-    Code, ExtEventSink, InternalLifeCycle, KbKey, Target, WindowHandle,
+    Code, ExtEventSink, InternalLifeCycle, KbKey, MouseButton, Target, WindowHandle,
     im::Vector,
     widget::{Controller, prelude::*},
 };
@@ -33,7 +33,7 @@ use crate::{
     data::Nav,
     data::{
         AppState, Config, NowPlaying, Playable, Playback, PlaybackOrigin, PlaybackState,
-        QueueBehavior, QueueEntry, RecommendationsRequest, TrackId,
+        QueueBehavior, QueueDragState, QueueEntry, RecommendationsRequest, TrackId,
     },
     ui::lyrics,
     webapi::WebApi,
@@ -487,6 +487,176 @@ impl PlaybackController {
         position + 1 < data.playback.queue.len()
     }
 
+    fn reorder_queue(&mut self, data: &mut AppState, from: usize, to: usize, insert_after: bool) {
+        let mut combined: Vec<QueueEntry> = data.playback.queue.iter().cloned().collect();
+        combined.extend(data.added_queue.iter().cloned());
+        if from >= combined.len() || to >= combined.len() {
+            return;
+        }
+
+        let mut target = if insert_after { to + 1 } else { to };
+        if let Some(now_playing) = &data.playback.now_playing
+            && let Some(now_index) = combined
+                .iter()
+                .position(|entry| entry.item.id() == now_playing.item.id())
+        {
+            if from == now_index {
+                return;
+            }
+            if from > now_index && to > now_index {
+                // Both positions are after now-playing; allow full reordering.
+            } else {
+                let min_target = now_index + 1;
+                if target < min_target {
+                    target = min_target;
+                }
+            }
+        }
+
+        let entry = combined.remove(from);
+        if target > from {
+            target = target.saturating_sub(1);
+        }
+        if target > combined.len() {
+            target = combined.len();
+        }
+        combined.insert(target, entry);
+        data.playback.queue = combined.into_iter().collect();
+        data.added_queue = Vector::new();
+        let playback_items = data.playback.queue.iter().map(|queued| PlaybackItem {
+            item_id: queued.item.id(),
+            norm_level: if data.config.normalization_enabled {
+                match queued.origin {
+                    PlaybackOrigin::Album(_) => NormalizationLevel::Album,
+                    _ => NormalizationLevel::Track,
+                }
+            } else {
+                NormalizationLevel::None
+            },
+        });
+        self.send(PlayerEvent::Command(PlayerCommand::ReplaceQueue {
+            items: playback_items.collect(),
+        }));
+    }
+
+    fn remove_from_queue(&mut self, data: &mut AppState, index: usize) {
+        let mut combined: Vec<QueueEntry> = data.playback.queue.iter().cloned().collect();
+        combined.extend(data.added_queue.iter().cloned());
+        if index >= combined.len() {
+            return;
+        }
+        if let Some(now_playing) = &data.playback.now_playing
+            && let Some(now_index) = combined
+                .iter()
+                .position(|entry| entry.item.id() == now_playing.item.id())
+            && index <= now_index
+        {
+            return;
+        }
+        combined.remove(index);
+        data.playback.queue = combined.into_iter().collect();
+        data.added_queue = Vector::new();
+        let playback_items = data.playback.queue.iter().map(|queued| PlaybackItem {
+            item_id: queued.item.id(),
+            norm_level: if data.config.normalization_enabled {
+                match queued.origin {
+                    PlaybackOrigin::Album(_) => NormalizationLevel::Album,
+                    _ => NormalizationLevel::Track,
+                }
+            } else {
+                NormalizationLevel::None
+            },
+        });
+        self.send(PlayerEvent::Command(PlayerCommand::ReplaceQueue {
+            items: playback_items.collect(),
+        }));
+    }
+
+    fn clear_queue(&mut self, data: &mut AppState) {
+        let now_entry = data
+            .playback
+            .now_playing
+            .as_ref()
+            .map(|now_playing| QueueEntry {
+                item: now_playing.item.clone(),
+                origin: now_playing.origin.clone(),
+            });
+        data.playback.queue = Vector::new();
+        if let Some(entry) = now_entry {
+            data.playback.queue.push_back(entry);
+        }
+        data.added_queue = Vector::new();
+        let playback_items = data
+            .playback
+            .queue
+            .iter()
+            .map(|entry| self.playback_item_for_entry(data, entry));
+        self.send(PlayerEvent::Command(PlayerCommand::ReplaceQueue {
+            items: playback_items.collect(),
+        }));
+    }
+
+    fn insert_queue_entries(
+        &mut self,
+        data: &mut AppState,
+        entries: Vector<QueueEntry>,
+        mode: cmd::QueueInsertMode,
+    ) {
+        if entries.is_empty() {
+            return;
+        }
+        match mode {
+            cmd::QueueInsertMode::End => {
+                for entry in entries.iter() {
+                    let item = self.playback_item_for_entry(data, entry);
+                    self.add_to_queue(&item);
+                    data.add_queued_entry(entry.clone());
+                }
+            }
+            cmd::QueueInsertMode::Next => {
+                self.insert_next_entries(data, &entries);
+                for entry in entries.iter().rev() {
+                    let item = self.playback_item_for_entry(data, entry);
+                    self.send(PlayerEvent::Command(PlayerCommand::AddNext { item }));
+                }
+            }
+        }
+    }
+
+    fn insert_next_entries(&mut self, data: &mut AppState, entries: &Vector<QueueEntry>) {
+        let mut queue = data.playback.queue.clone();
+        let insert_pos = data
+            .playback
+            .now_playing
+            .as_ref()
+            .and_then(|now_playing| {
+                queue
+                    .iter()
+                    .position(|entry| entry.item.id() == now_playing.item.id())
+            })
+            .map(|pos| pos + 1)
+            .unwrap_or(queue.len())
+            .min(queue.len());
+        for (offset, entry) in entries.iter().enumerate() {
+            queue.insert(insert_pos + offset, entry.clone());
+        }
+        data.playback.queue = queue;
+    }
+
+    fn playback_item_for_entry(&self, data: &AppState, entry: &QueueEntry) -> PlaybackItem {
+        PlaybackItem {
+            item_id: entry.item.id(),
+            norm_level: if data.config.normalization_enabled {
+                match entry.origin {
+                    PlaybackOrigin::Album(_) => NormalizationLevel::Album,
+                    _ => NormalizationLevel::Track,
+                }
+            } else {
+                NormalizationLevel::None
+            },
+        }
+    }
+
     fn start_autoplay_request(&self, ctx: &mut EventCtx, seed: TrackId) {
         let sink = ctx.get_external_handle();
         let widget_id = ctx.widget_id();
@@ -745,6 +915,19 @@ where
         data: &mut AppState,
         env: &Env,
     ) {
+        if let Event::MouseUp(mouse) = event
+            && mouse.button == MouseButton::Left
+            && data.queue_drag.source_index.is_some()
+        {
+            data.queue_drag = QueueDragState::default();
+        }
+        if let Event::MouseMove(mouse) = event
+            && data.queue_drag.source_index.is_some()
+            && !mouse.buttons.contains(MouseButton::Left)
+        {
+            data.queue_drag = QueueDragState::default();
+        }
+
         match event {
             Event::Command(cmd) if cmd.is(cmd::SET_FOCUS) => {
                 ctx.request_focus();
@@ -783,7 +966,19 @@ where
                             .cloned()
                             .collect();
                     }
+                    let recent_entry = queued.clone();
                     data.start_playback(queued.item, queued.origin, progress.to_owned());
+                    data.recently_played = data
+                        .recently_played
+                        .iter()
+                        .filter(|entry| entry.item.id() != *item)
+                        .cloned()
+                        .collect();
+                    data.recently_played.push_front(recent_entry);
+                    const RECENTLY_PLAYED_LIMIT: usize = 50;
+                    while data.recently_played.len() > RECENTLY_PLAYED_LIMIT {
+                        data.recently_played.pop_back();
+                    }
                     self.update_media_control_playback(&data.playback);
                     self.update_media_control_metadata(&data.playback);
                     if let Some(now_playing) = &data.playback.now_playing {
@@ -859,6 +1054,69 @@ where
                 }
                 data.stop_playback();
                 self.update_media_control_playback(&data.playback);
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::TOGGLE_QUEUE_PANEL) => {
+                data.playback_panel_open = !data.playback_panel_open;
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::QUEUE_DRAG_BEGIN) => {
+                let begin = cmd.get_unchecked(cmd::QUEUE_DRAG_BEGIN);
+                data.queue_drag.active = false;
+                data.queue_drag.source_index = Some(begin.index);
+                data.queue_drag.over_index = None;
+                data.queue_drag.insert_after = false;
+                data.queue_drag.last_over_index = None;
+                data.queue_drag.last_insert_after = false;
+                data.queue_drag.start_pos = Some(begin.start_pos);
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::QUEUE_DRAG_OVER) => {
+                let over = cmd.get_unchecked(cmd::QUEUE_DRAG_OVER);
+                if data.queue_drag.source_index.is_some() {
+                    if data.queue_drag.last_over_index == Some(over.index)
+                        && data.queue_drag.last_insert_after == over.insert_after
+                    {
+                        ctx.set_handled();
+                        return;
+                    }
+                    if data.queue_drag.over_index == Some(over.index)
+                        && data.queue_drag.insert_after == over.insert_after
+                    {
+                        ctx.set_handled();
+                        return;
+                    }
+                    data.queue_drag.active = true;
+                    data.queue_drag.over_index = Some(over.index);
+                    data.queue_drag.insert_after = over.insert_after;
+                    data.queue_drag.last_over_index = Some(over.index);
+                    data.queue_drag.last_insert_after = over.insert_after;
+                }
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::QUEUE_DRAG_END) => {
+                if data.queue_drag.active
+                    && let (Some(from), Some(to)) =
+                        (data.queue_drag.source_index, data.queue_drag.over_index)
+                {
+                    self.reorder_queue(data, from, to, data.queue_drag.insert_after);
+                }
+                data.queue_drag = QueueDragState::default();
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::PLAY_QUEUE_ENTRIES) => {
+                let request = cmd.get_unchecked(cmd::PLAY_QUEUE_ENTRIES);
+                if request.entries.is_empty() || request.position >= request.entries.len() {
+                    ctx.set_handled();
+                    return;
+                }
+                data.added_queue = Vector::new();
+                data.playback.queue = request.entries.clone();
+                self.play(
+                    &data.playback.queue,
+                    request.position,
+                    data.config.normalization_enabled,
+                );
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::AUTOPLAY_READY) => {
@@ -1020,6 +1278,52 @@ where
 
                 self.add_to_queue(item);
                 data.add_queued_entry(entry.clone());
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::QUEUE_INSERT_ENTRIES) => {
+                let request = cmd.get_unchecked(cmd::QUEUE_INSERT_ENTRIES).clone();
+                self.insert_queue_entries(data, request.entries, request.mode);
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::QUEUE_INSERT_PLAYLIST) => {
+                let request = cmd.get_unchecked(cmd::QUEUE_INSERT_PLAYLIST).clone();
+                let sink = ctx.get_external_handle();
+                let widget_id = ctx.widget_id();
+                thread::spawn(move || {
+                    let api = WebApi::global();
+                    let tracks = api
+                        .get_playlist_tracks_all(&request.link.id)
+                        .unwrap_or_default();
+                    if tracks.is_empty() {
+                        return;
+                    }
+                    let origin = PlaybackOrigin::Playlist(request.link.clone());
+                    let entries: Vector<QueueEntry> = tracks
+                        .iter()
+                        .cloned()
+                        .map(|track| QueueEntry {
+                            item: Playable::Track(track),
+                            origin: origin.clone(),
+                        })
+                        .collect();
+                    let _ = sink.submit_command(
+                        cmd::QUEUE_INSERT_ENTRIES,
+                        cmd::QueueInsertRequest {
+                            entries,
+                            mode: request.mode,
+                        },
+                        widget_id,
+                    );
+                });
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::REMOVE_FROM_QUEUE) => {
+                let index = *cmd.get_unchecked(cmd::REMOVE_FROM_QUEUE);
+                self.remove_from_queue(data, index);
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::CLEAR_QUEUE) => {
+                self.clear_queue(data);
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::PLAY_QUEUE_BEHAVIOR) => {

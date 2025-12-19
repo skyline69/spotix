@@ -88,6 +88,12 @@ pub enum PlaybackState {
     Stopped,
 }
 
+#[derive(Copy, Clone, Debug, Data, Eq, PartialEq)]
+pub enum PlaybackPanelTab {
+    Queue,
+    RecentlyPlayed,
+}
+
 #[derive(Clone, Data, Lens)]
 pub struct NowPlaying {
     pub item: Playable,

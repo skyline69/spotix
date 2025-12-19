@@ -31,6 +31,9 @@ pub const MENU_BUTTON_BG_ACTIVE: Key<Color> = Key::new("app.menu-bg-active");
 pub const MENU_BUTTON_BG_INACTIVE: Key<Color> = Key::new("app.menu-bg-inactive");
 pub const MENU_BUTTON_FG_ACTIVE: Key<Color> = Key::new("app.menu-fg-active");
 pub const MENU_BUTTON_FG_INACTIVE: Key<Color> = Key::new("app.menu-fg-inactive");
+pub const PLAYBACK_TOGGLE_BG_ACTIVE: Key<Color> = Key::new("app.playback-toggle-bg-active");
+pub const PLAYBACK_TOGGLE_BG_INACTIVE: Key<Color> = Key::new("app.playback-toggle-bg-inactive");
+pub const PLAYBACK_TOGGLE_FG_ACTIVE: Key<Color> = Key::new("app.playback-toggle-fg-active");
 
 pub const UI_FONT_MEDIUM: Key<FontDescriptor> = Key::new("app.ui-font-medium");
 pub const UI_FONT_MONO: Key<FontDescriptor> = Key::new("app.ui-font-mono");
@@ -145,6 +148,9 @@ pub fn setup(env: &mut Env, state: &AppState) {
     env.set(MENU_BUTTON_BG_INACTIVE, env.get(GREY_600));
     env.set(MENU_BUTTON_FG_ACTIVE, env.get(GREY_000));
     env.set(MENU_BUTTON_FG_INACTIVE, env.get(GREY_100));
+    env.set(PLAYBACK_TOGGLE_BG_ACTIVE, env.get(LINK_ACTIVE_COLOR));
+    env.set(PLAYBACK_TOGGLE_BG_INACTIVE, env.get(LINK_COLD_COLOR));
+    env.set(PLAYBACK_TOGGLE_FG_ACTIVE, env.get(BLUE_100));
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -178,6 +184,9 @@ struct ThemeColors {
     link_cold: Option<String>,
     lyric_highlight: Option<String>,
     lyric_past: Option<String>,
+    playback_toggle_bg_active: Option<String>,
+    playback_toggle_bg_inactive: Option<String>,
+    playback_toggle_fg_active: Option<String>,
 }
 
 fn setup_custom_theme(env: &mut Env, name: &str) -> Option<ThemeTone> {
@@ -283,6 +292,24 @@ fn apply_theme_colors(env: &mut Env, colors: &ThemeColors) {
         "lyric_highlight",
     );
     set_color(env, LYRIC_PAST, &colors.lyric_past, "lyric_past");
+    set_color(
+        env,
+        PLAYBACK_TOGGLE_BG_ACTIVE,
+        &colors.playback_toggle_bg_active,
+        "playback_toggle_bg_active",
+    );
+    set_color(
+        env,
+        PLAYBACK_TOGGLE_BG_INACTIVE,
+        &colors.playback_toggle_bg_inactive,
+        "playback_toggle_bg_inactive",
+    );
+    set_color(
+        env,
+        PLAYBACK_TOGGLE_FG_ACTIVE,
+        &colors.playback_toggle_fg_active,
+        "playback_toggle_fg_active",
+    );
 }
 
 fn set_color(env: &mut Env, key: Key<Color>, value: &Option<String>, label: &str) {

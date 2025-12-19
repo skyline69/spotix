@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use crate::{
     data::{
-        Nav, PlaybackOrigin, PlaybackPayload, QueueBehavior, QueueEntry, RecommendationsRequest,
-        Track, TrackId,
+        Nav, PlaybackOrigin, PlaybackPayload, PlaylistLink, QueueBehavior, QueueEntry,
+        RecommendationsRequest, Track, TrackId,
     },
     ui::find::Find,
 };
@@ -47,6 +47,18 @@ pub const PLAYBACK_PAUSING: Selector = Selector::new("app.playback-pausing");
 pub const PLAYBACK_RESUMING: Selector = Selector::new("app.playback-resuming");
 pub const PLAYBACK_BLOCKED: Selector = Selector::new("app.playback-blocked");
 pub const PLAYBACK_STOPPED: Selector = Selector::new("app.playback-stopped");
+pub const TOGGLE_QUEUE_PANEL: Selector = Selector::new("app.queue-panel.toggle");
+pub const PLAY_QUEUE_ENTRIES: Selector<QueuePlayRequest> =
+    Selector::new("app.queue-panel.play-entries");
+pub const QUEUE_DRAG_BEGIN: Selector<QueueDragBegin> = Selector::new("app.queue-drag.begin");
+pub const QUEUE_DRAG_OVER: Selector<QueueDragOver> = Selector::new("app.queue-drag.over");
+pub const QUEUE_DRAG_END: Selector = Selector::new("app.queue-drag.end");
+pub const REMOVE_FROM_QUEUE: Selector<usize> = Selector::new("app.queue.remove");
+pub const CLEAR_QUEUE: Selector = Selector::new("app.queue.clear");
+pub const QUEUE_INSERT_ENTRIES: Selector<QueueInsertRequest> =
+    Selector::new("app.queue.insert-entries");
+pub const QUEUE_INSERT_PLAYLIST: Selector<QueuePlaylistRequest> =
+    Selector::new("app.queue.insert-playlist");
 pub const AUTOPLAY_READY: Selector<AutoplayResults> = Selector::new("app.autoplay-ready");
 pub const RESTORE_SNAPSHOT_READY: Selector<RestoreSnapshot> =
     Selector::new("app.playback-restore-snapshot-ready");
@@ -127,4 +139,40 @@ pub struct AutoplayResults {
     pub seed: TrackId,
     pub request: Arc<RecommendationsRequest>,
     pub tracks: Vector<Arc<Track>>,
+}
+
+#[derive(Clone)]
+pub struct QueuePlayRequest {
+    pub entries: Vector<QueueEntry>,
+    pub position: usize,
+}
+
+#[derive(Clone)]
+pub struct QueueDragOver {
+    pub index: usize,
+    pub insert_after: bool,
+}
+
+#[derive(Clone)]
+pub struct QueueDragBegin {
+    pub index: usize,
+    pub start_pos: druid::kurbo::Point,
+}
+
+#[derive(Clone)]
+pub enum QueueInsertMode {
+    Next,
+    End,
+}
+
+#[derive(Clone)]
+pub struct QueueInsertRequest {
+    pub entries: Vector<QueueEntry>,
+    pub mode: QueueInsertMode,
+}
+
+#[derive(Clone)]
+pub struct QueuePlaylistRequest {
+    pub link: PlaylistLink,
+    pub mode: QueueInsertMode,
 }

@@ -20,11 +20,13 @@ use credits::TrackCredits;
 use druid::KbKey;
 use druid::widget::Controller;
 use druid::{
-    Color, Env, Insets, Key, LensExt, Menu, MenuItem, Selector, Widget, WidgetExt, WindowDesc,
+    Color, Data, Env, Insets, Key, LensExt, Menu, MenuItem, RenderContext, Selector, Widget,
+    WidgetExt, WindowDesc,
     im::Vector,
+    kurbo::Line,
     widget::{
-        CrossAxisAlignment, Either, Flex, Label, LineBreaking, List, Scroll, Slider, Split,
-        TextBox, ViewSwitcher,
+        CrossAxisAlignment, Either, Flex, Label, LineBreaking, List, Painter, Scroll, Slider,
+        Split, TextBox, ViewSwitcher,
     },
 };
 use druid_shell::Cursor;
@@ -248,12 +250,28 @@ fn root_widget() -> impl Widget<AppState> {
         .with_child(topbar_search_widget())
         .background(Border::Bottom.with_color(theme::BACKGROUND_DARK));
 
-    let main = Flex::column()
+    let main_content = Flex::column()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .with_child(topbar)
         .with_flex_child(Overlay::bottom(route_widget(), alert_widget()), 1.0)
         .with_child(playback::panel_widget())
         .background(theme::BACKGROUND_LIGHT);
+
+    let main = Flex::row()
+        .with_flex_child(main_content, 1.0)
+        .with_child(ViewSwitcher::new(
+            |data: &AppState, _| data.playback_panel_open,
+            |open, _, _| {
+                if *open {
+                    Flex::row()
+                        .with_child(queue_panel_separator())
+                        .with_child(playback::queue_panel_widget())
+                        .boxed()
+                } else {
+                    Empty.boxed()
+                }
+            },
+        ));
 
     let split = Split::columns(sidebar, main)
         .split_point(0.2)
@@ -554,6 +572,16 @@ fn topbar_search_widget() -> impl Widget<AppState> {
             false => Empty.boxed(),
         },
     )
+}
+
+fn queue_panel_separator<T: Data>() -> impl Widget<T> {
+    const SEPARATOR_WIDTH: f64 = 1.0;
+    Painter::new(|ctx, _, env| {
+        let size = ctx.size();
+        let line = Line::new((0.5, 0.0), (0.5, size.height));
+        ctx.stroke(line, &env.get(theme::BORDER_DARK), 1.0);
+    })
+    .fix_width(SEPARATOR_WIDTH)
 }
 
 fn topbar_back_button_widget() -> impl Widget<AppState> {
