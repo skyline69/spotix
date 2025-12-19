@@ -32,6 +32,7 @@ pub struct PlaybackConfig {
     pub pregain: f32,
     pub audio_cache_limit: Option<u64>,
     pub crossfade_duration: Duration,
+    pub mono_audio: bool,
 }
 
 impl Default for PlaybackConfig {
@@ -41,6 +42,7 @@ impl Default for PlaybackConfig {
             pregain: 3.0,
             audio_cache_limit: None,
             crossfade_duration: Duration::from_secs(0),
+            mono_audio: false,
         }
     }
 }
@@ -315,7 +317,7 @@ impl Player {
         log::info!("starting playback");
         let path = loaded_item.file.path();
         let position = Duration::default();
-        self.playback_mgr.play(loaded_item);
+        self.playback_mgr.play(loaded_item, self.config.mono_audio);
         self.state = PlayerState::Playing { path, position };
         self.sender
             .send(PlayerEvent::Playing { path, position })
@@ -426,10 +428,11 @@ impl Player {
         };
 
         let next_path = loaded_item.file.path();
-        if !self
-            .playback_mgr
-            .start_crossfade(loaded_item, self.config.crossfade_duration)
-        {
+        if !self.playback_mgr.start_crossfade(
+            loaded_item,
+            self.config.crossfade_duration,
+            self.config.mono_audio,
+        ) {
             self.preload(next_item);
             return;
         }

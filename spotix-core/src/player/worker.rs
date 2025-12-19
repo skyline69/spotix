@@ -21,7 +21,8 @@ use crate::{
         output::{AudioSink, DefaultAudioSink},
         resample::ResamplingQuality,
         source::{
-            AudioSource, CrossfadeCommand, CrossfadeSource, ResampledSource, StereoMappedSource,
+            AudioSource, CrossfadeCommand, CrossfadeSource, MonoMappedSource, MonoSource,
+            ResampledSource, StereoMappedSource,
         },
     },
     error::Error,
@@ -49,8 +50,8 @@ impl PlaybackManager {
         }
     }
 
-    pub fn play(&mut self, loaded: LoadedPlaybackItem) {
-        let output = self.build_output_source(loaded);
+    pub fn play(&mut self, loaded: LoadedPlaybackItem, mono_audio: bool) {
+        let output = self.build_output_source(loaded, mono_audio);
         self.current = Some((output.path, output.seek_sender));
         let (source, sender) = CrossfadeSource::new(output.source);
         self.crossfade_send = Some(sender);
@@ -58,12 +59,17 @@ impl PlaybackManager {
         self.sink.resume();
     }
 
-    pub fn start_crossfade(&mut self, loaded: LoadedPlaybackItem, duration: Duration) -> bool {
+    pub fn start_crossfade(
+        &mut self,
+        loaded: LoadedPlaybackItem,
+        duration: Duration,
+        mono_audio: bool,
+    ) -> bool {
         let sender = match &self.crossfade_send {
             Some(sender) => sender.clone(),
             None => return false,
         };
-        let output = self.build_output_source(loaded);
+        let output = self.build_output_source(loaded, mono_audio);
         self.current = Some((output.path, output.seek_sender));
         let frames = (duration.as_secs_f64() * self.sink.sample_rate() as f64) as u64;
         let msg = if frames == 0 {
@@ -95,7 +101,7 @@ impl PlaybackManager {
         }
     }
 
-    fn build_output_source(&self, loaded: LoadedPlaybackItem) -> OutputSource {
+    fn build_output_source(&self, loaded: LoadedPlaybackItem, mono_audio: bool) -> OutputSource {
         let path = loaded.file.path();
         let source = DecoderSource::new(
             loaded.file,
@@ -104,27 +110,31 @@ impl PlaybackManager {
             self.event_send.clone(),
         );
         let seek_sender = source.actor.sender();
+        let mut source: Box<dyn AudioSource> = Box::new(source);
+        if mono_audio {
+            source = Box::new(MonoSource::new(source));
+        }
 
-        if source.sample_rate() == self.sink.sample_rate()
-            && source.channel_count() == self.sink.channel_count()
-        {
-            OutputSource {
-                source: Box::new(source),
-                path,
-                seek_sender,
-            }
-        } else {
-            let source = ResampledSource::new(
+        if source.sample_rate() != self.sink.sample_rate() {
+            source = Box::new(ResampledSource::new(
                 source,
                 self.sink.sample_rate(),
                 ResamplingQuality::SincMediumQuality,
-            );
-            let source = StereoMappedSource::new(source, self.sink.channel_count());
-            OutputSource {
-                source: Box::new(source),
-                path,
-                seek_sender,
+            ));
+        }
+
+        if source.channel_count() != self.sink.channel_count() {
+            if mono_audio {
+                source = Box::new(MonoMappedSource::new(source, self.sink.channel_count()));
+            } else {
+                source = Box::new(StereoMappedSource::new(source, self.sink.channel_count()));
             }
+        }
+
+        OutputSource {
+            source,
+            path,
+            seek_sender,
         }
     }
 }

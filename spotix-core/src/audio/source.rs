@@ -15,6 +15,20 @@ pub trait AudioSource: Send + 'static {
     fn sample_rate(&self) -> u32;
 }
 
+impl AudioSource for Box<dyn AudioSource> {
+    fn write(&mut self, output: &mut [f32]) -> usize {
+        self.as_mut().write(output)
+    }
+
+    fn channel_count(&self) -> usize {
+        self.as_ref().channel_count()
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.as_ref().sample_rate()
+    }
+}
+
 /// Empty audio source. Does not produce any samples.
 pub struct Empty;
 
@@ -73,6 +87,122 @@ where
             // Assume the rest is is implicitly silence.
         }
         output.len()
+    }
+
+    fn channel_count(&self) -> usize {
+        self.output_channels
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.source.sample_rate()
+    }
+}
+
+pub struct MonoSource<S> {
+    source: S,
+    input_channels: usize,
+    buffer: Vec<f32>,
+}
+
+impl<S> MonoSource<S>
+where
+    S: AudioSource,
+{
+    pub fn new(source: S) -> Self {
+        const BUFFER_SIZE: usize = 16 * 1024;
+
+        let input_channels = source.channel_count();
+        Self {
+            source,
+            input_channels,
+            buffer: vec![0.0; BUFFER_SIZE],
+        }
+    }
+}
+
+impl<S> AudioSource for MonoSource<S>
+where
+    S: AudioSource,
+{
+    fn write(&mut self, output: &mut [f32]) -> usize {
+        if self.input_channels == 0 {
+            return 0;
+        }
+        if self.input_channels == 1 {
+            return self.source.write(output);
+        }
+        let frames = output.len();
+        let input_needed = frames * self.input_channels;
+        if self.buffer.len() < input_needed {
+            self.buffer.resize(input_needed, 0.0);
+        }
+        let written = self.source.write(&mut self.buffer[..input_needed]);
+        let written_frames = written / self.input_channels;
+        for (frame, out_sample) in output.iter_mut().enumerate().take(written_frames) {
+            let base = frame * self.input_channels;
+            let mut sum = 0.0;
+            for ch in 0..self.input_channels {
+                sum += self.buffer[base + ch];
+            }
+            *out_sample = sum / self.input_channels as f32;
+        }
+        output[written_frames..].iter_mut().for_each(|s| *s = 0.0);
+        written_frames
+    }
+
+    fn channel_count(&self) -> usize {
+        1
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.source.sample_rate()
+    }
+}
+
+pub struct MonoMappedSource<S> {
+    source: S,
+    output_channels: usize,
+    buffer: Vec<f32>,
+}
+
+impl<S> MonoMappedSource<S>
+where
+    S: AudioSource,
+{
+    pub fn new(source: S, output_channels: usize) -> Self {
+        const BUFFER_SIZE: usize = 16 * 1024;
+
+        Self {
+            source,
+            output_channels,
+            buffer: vec![0.0; BUFFER_SIZE],
+        }
+    }
+}
+
+impl<S> AudioSource for MonoMappedSource<S>
+where
+    S: AudioSource,
+{
+    fn write(&mut self, output: &mut [f32]) -> usize {
+        let frames = output.len() / self.output_channels;
+        if frames == 0 {
+            return 0;
+        }
+        if self.buffer.len() < frames {
+            self.buffer.resize(frames, 0.0);
+        }
+        let written_frames = self.source.write(&mut self.buffer[..frames]);
+        let output_frames = output.chunks_exact_mut(self.output_channels);
+        let mut written_samples = 0;
+        for (value, out) in self.buffer[..written_frames].iter().zip(output_frames) {
+            for sample in out.iter_mut() {
+                *sample = *value;
+            }
+            written_samples += self.output_channels;
+        }
+        output[written_samples..].iter_mut().for_each(|s| *s = 0.0);
+        written_samples
     }
 
     fn channel_count(&self) -> usize {

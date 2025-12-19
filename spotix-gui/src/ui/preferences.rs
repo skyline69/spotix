@@ -93,6 +93,7 @@ pub fn preferences_widget() -> impl Widget<AppState> {
                 |state: &AppState, _| state.preferences.active,
                 |active, _, _| match active {
                     PreferencesTab::General => general_tab_widget().boxed(),
+                    PreferencesTab::Playback => playback_tab_widget().boxed(),
                     PreferencesTab::Account => {
                         account_tab_widget(AccountTab::InPreferences).boxed()
                     }
@@ -140,6 +141,12 @@ fn tabs_widget() -> impl Widget<AppState> {
             "General",
             &icons::PREFERENCES,
             PreferencesTab::General,
+        ))
+        .with_default_spacer()
+        .with_child(tab_link_widget(
+            "Playback",
+            &icons::PLAY,
+            PreferencesTab::Playback,
         ))
         .with_default_spacer()
         .with_child(tab_link_widget(
@@ -264,10 +271,45 @@ fn general_tab_widget() -> impl Widget<AppState> {
                 .lens(AppState::config.then(Config::seek_duration)),
         );
 
+    col = col
+        .with_child(
+            Label::new("Max Loaded Tracks (requires restart)").with_font(theme::UI_FONT_MEDIUM),
+        )
+        .with_spacer(theme::grid(2.0))
+        .with_child(
+            Flex::row()
+                .with_child(
+                    TextBox::new().with_formatter(ParseFormatter::with_format_fn(
+                        |usize: &usize| usize.to_string(),
+                    )),
+                )
+                .lens(AppState::config.then(Config::paginated_limit)),
+        );
+
+    col
+}
+
+fn playback_tab_widget() -> impl Widget<AppState> {
+    let mut col = Flex::column()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .must_fill_main_axis(true);
+
+    col = col
+        .with_child(Label::new("Output").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(2.0))
+        .with_child(
+            Checkbox::new("Force mono audio").lens(AppState::config.then(Config::mono_audio)),
+        )
+        .with_spacer(theme::grid(1.0))
+        .with_child(
+            Checkbox::new("Enable audio normalization")
+                .lens(AppState::config.then(Config::normalization_enabled)),
+        );
+
     col = col.with_spacer(theme::grid(3.0));
 
     col = col
-        .with_child(Label::new("Crossfade Duration").with_font(theme::UI_FONT_MEDIUM))
+        .with_child(Label::new("Crossfade").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(2.0))
         .with_child(
             Flex::row()
@@ -285,23 +327,6 @@ fn general_tab_widget() -> impl Widget<AppState> {
                 )
                 .with_spacer(theme::grid(0.5))
                 .with_child(Label::new("Duration")),
-        );
-
-    col = col.with_spacer(theme::grid(3.0));
-
-    col = col
-        .with_child(
-            Label::new("Max Loaded Tracks (requires restart)").with_font(theme::UI_FONT_MEDIUM),
-        )
-        .with_spacer(theme::grid(2.0))
-        .with_child(
-            Flex::row()
-                .with_child(
-                    TextBox::new().with_formatter(ParseFormatter::with_format_fn(
-                        |usize: &usize| usize.to_string(),
-                    )),
-                )
-                .lens(AppState::config.then(Config::paginated_limit)),
         );
 
     col

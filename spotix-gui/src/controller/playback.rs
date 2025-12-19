@@ -332,12 +332,16 @@ impl PlaybackController {
         }
     }
 
-    fn play(&mut self, items: &Vector<QueueEntry>, position: usize) {
+    fn play(&mut self, items: &Vector<QueueEntry>, position: usize, normalization_enabled: bool) {
         let playback_items = items.iter().map(|queued| PlaybackItem {
             item_id: queued.item.id(),
-            norm_level: match queued.origin {
-                PlaybackOrigin::Album(_) => NormalizationLevel::Album,
-                _ => NormalizationLevel::Track,
+            norm_level: if normalization_enabled {
+                match queued.origin {
+                    PlaybackOrigin::Album(_) => NormalizationLevel::Album,
+                    _ => NormalizationLevel::Track,
+                }
+            } else {
+                NormalizationLevel::None
             },
         });
         let playback_items_vec: Vec<PlaybackItem> = playback_items.collect();
@@ -418,6 +422,29 @@ impl PlaybackController {
                 QueueBehavior::LoopAll => spotix_core::player::queue::QueueBehavior::LoopAll,
             },
         }));
+    }
+
+    fn restart_playback_with_config(&mut self, data: &AppState) {
+        let Some(now_playing) = &data.playback.now_playing else {
+            return;
+        };
+        let Some(position) = data
+            .playback
+            .queue
+            .iter()
+            .position(|entry| entry.item.id() == now_playing.item.id())
+        else {
+            return;
+        };
+        self.pending_restore = Some(PendingRestore {
+            progress: now_playing.progress,
+            is_playing: now_playing.is_playing,
+        });
+        self.play(
+            &data.playback.queue,
+            position,
+            data.config.normalization_enabled,
+        );
     }
 
     fn update_lyrics(&mut self, ctx: &mut EventCtx, data: &AppState, now_playing: &NowPlaying) {
@@ -786,7 +813,7 @@ where
                     progress: Duration::from_millis(*progress_ms),
                     is_playing: *is_playing,
                 });
-                self.play(&data.playback.queue, 0);
+                self.play(&data.playback.queue, 0, data.config.normalization_enabled);
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::PLAY_TRACKS) => {
@@ -800,7 +827,11 @@ where
                     })
                     .collect();
 
-                self.play(&data.playback.queue, payload.position);
+                self.play(
+                    &data.playback.queue,
+                    payload.position,
+                    data.config.normalization_enabled,
+                );
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::PLAY_PAUSE) => {
@@ -948,12 +979,19 @@ where
 
         let playback_config_changed = old_data.config.audio_quality != data.config.audio_quality
             || old_data.config.audio_cache_limit_mb != data.config.audio_cache_limit_mb
-            || old_data.config.crossfade_duration_secs != data.config.crossfade_duration_secs;
+            || old_data.config.crossfade_duration_secs != data.config.crossfade_duration_secs
+            || old_data.config.mono_audio != data.config.mono_audio;
 
         if playback_config_changed {
             self.send(PlayerEvent::Command(PlayerCommand::Configure {
                 config: data.config.playback(),
             }));
+        }
+
+        let playback_restart_needed = old_data.config.mono_audio != data.config.mono_audio
+            || old_data.config.normalization_enabled != data.config.normalization_enabled;
+        if playback_restart_needed {
+            self.restart_playback_with_config(data);
         }
 
         child.update(ctx, old_data, data, env);

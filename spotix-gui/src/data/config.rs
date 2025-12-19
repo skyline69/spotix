@@ -87,6 +87,7 @@ pub struct CacheUsage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Data)]
 pub enum PreferencesTab {
     General,
+    Playback,
     Account,
     Cache,
     About,
@@ -166,6 +167,8 @@ pub struct Config {
     pub audio_cache_limit_mb: f64,
     pub enable_pagination: bool,
     pub crossfade_duration_secs: f64,
+    pub mono_audio: bool,
+    pub normalization_enabled: bool,
     pub lastfm_session_key: Option<String>,
     pub lastfm_api_key: Option<String>,
     pub lastfm_api_secret: Option<String>,
@@ -191,6 +194,8 @@ impl Default for Config {
             audio_cache_limit_mb: 4096.0,
             enable_pagination: true,
             crossfade_duration_secs: 0.0,
+            mono_audio: false,
+            normalization_enabled: true,
             lastfm_session_key: None,
             lastfm_api_key: None,
             lastfm_api_secret: None,
@@ -295,6 +300,7 @@ impl Config {
                 Some((self.audio_cache_limit_mb * 1024.0 * 1024.0) as u64)
             },
             crossfade_duration: Duration::from_secs_f64(self.crossfade_duration_secs.max(0.0)),
+            mono_audio: self.mono_audio,
             ..PlaybackConfig::default()
         }
     }
