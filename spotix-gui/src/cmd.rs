@@ -1,11 +1,14 @@
-use druid::{Selector, WidgetId};
+use druid::{Selector, WidgetId, im::Vector};
 use serde::{Deserialize, Serialize};
 use spotix_core::{item_id::ItemId, player::item::PlaybackItem};
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::{
-    data::{Nav, PlaybackOrigin, PlaybackPayload, QueueBehavior, QueueEntry, Track},
+    data::{
+        Nav, PlaybackOrigin, PlaybackPayload, QueueBehavior, QueueEntry, RecommendationsRequest,
+        Track, TrackId,
+    },
     ui::find::Find,
 };
 
@@ -44,6 +47,7 @@ pub const PLAYBACK_PAUSING: Selector = Selector::new("app.playback-pausing");
 pub const PLAYBACK_RESUMING: Selector = Selector::new("app.playback-resuming");
 pub const PLAYBACK_BLOCKED: Selector = Selector::new("app.playback-blocked");
 pub const PLAYBACK_STOPPED: Selector = Selector::new("app.playback-stopped");
+pub const AUTOPLAY_READY: Selector<AutoplayResults> = Selector::new("app.autoplay-ready");
 pub const RESTORE_SNAPSHOT_READY: Selector<RestoreSnapshot> =
     Selector::new("app.playback-restore-snapshot-ready");
 pub const RESTORE_SNAPSHOT_RESOLVED: Selector<(QueueEntry, u64, bool)> =
@@ -116,4 +120,11 @@ pub struct SnapshotAlbum {
 pub struct SnapshotArtist {
     pub id: String,
     pub name: Arc<str>,
+}
+
+#[derive(Clone)]
+pub struct AutoplayResults {
+    pub seed: TrackId,
+    pub request: Arc<RecommendationsRequest>,
+    pub tracks: Vector<Arc<Track>>,
 }

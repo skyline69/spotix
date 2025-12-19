@@ -329,6 +329,16 @@ fn playback_tab_widget() -> impl Widget<AppState> {
                 .with_child(Label::new("Duration")),
         );
 
+    col = col.with_spacer(theme::grid(3.0));
+
+    col = col
+        .with_child(Label::new("Autoplay").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(2.0))
+        .with_child(
+            Checkbox::new("Play similar tracks when your queue ends")
+                .lens(AppState::config.then(Config::autoplay_enabled)),
+        );
+
     col
 }
 

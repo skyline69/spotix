@@ -33,7 +33,7 @@ use crate::{
     data::Nav,
     data::{
         AppState, Config, NowPlaying, Playable, Playback, PlaybackOrigin, PlaybackState,
-        QueueBehavior, QueueEntry,
+        QueueBehavior, QueueEntry, RecommendationsRequest, TrackId,
     },
     ui::lyrics,
     webapi::WebApi,
@@ -49,6 +49,9 @@ pub struct PlaybackController {
     startup: bool,
     pending_restore: Option<PendingRestore>,
     snapshot_path: Option<PathBuf>,
+    autoplay_in_flight: bool,
+    autoplay_seed: Option<TrackId>,
+    user_stop_requested: bool,
 }
 
 struct PendingRestore {
@@ -57,6 +60,7 @@ struct PendingRestore {
 }
 
 static SNAPSHOT_WRITE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+const AUTOPLAY_PREFETCH_WINDOW: Duration = Duration::from_secs(40);
 fn init_scrobbler_instance(data: &AppState) -> Option<Scrobbler> {
     if data.config.lastfm_enable {
         if let (Some(api_key), Some(api_secret), Some(session_key)) = (
@@ -95,6 +99,9 @@ impl PlaybackController {
             startup: true,
             pending_restore: None,
             snapshot_path: Config::last_playback_path(),
+            autoplay_in_flight: false,
+            autoplay_seed: None,
+            user_stop_requested: false,
         }
     }
 
@@ -380,6 +387,7 @@ impl PlaybackController {
     }
 
     fn stop(&mut self) {
+        self.user_stop_requested = true;
         self.send(PlayerEvent::Command(PlayerCommand::Stop));
     }
 
@@ -422,6 +430,125 @@ impl PlaybackController {
                 QueueBehavior::LoopAll => spotix_core::player::queue::QueueBehavior::LoopAll,
             },
         }));
+    }
+
+    fn maybe_request_autoplay(&mut self, ctx: &mut EventCtx, data: &AppState) {
+        if !data.config.autoplay_enabled
+            || self.autoplay_in_flight
+            || !matches!(
+                data.playback.queue_behavior,
+                QueueBehavior::Sequential | QueueBehavior::Random
+            )
+        {
+            return;
+        }
+        let Some(now_playing) = &data.playback.now_playing else {
+            return;
+        };
+        let Playable::Track(track) = &now_playing.item else {
+            return;
+        };
+        let seed = track.id;
+        if self.autoplay_seed == Some(seed) {
+            return;
+        }
+        if self.has_following_item(data) {
+            return;
+        }
+        let time_until_end = now_playing
+            .item
+            .duration()
+            .checked_sub(now_playing.progress)
+            .unwrap_or_default();
+        if time_until_end > AUTOPLAY_PREFETCH_WINDOW {
+            return;
+        }
+
+        self.start_autoplay_request(ctx, track.id);
+        self.autoplay_seed = Some(seed);
+        self.autoplay_in_flight = true;
+    }
+
+    fn has_following_item(&self, data: &AppState) -> bool {
+        let Some(now_playing) = &data.playback.now_playing else {
+            return false;
+        };
+        if !data.added_queue.is_empty() {
+            return true;
+        }
+        let Some(position) = data
+            .playback
+            .queue
+            .iter()
+            .position(|entry| entry.item.id() == now_playing.item.id())
+        else {
+            return false;
+        };
+        position + 1 < data.playback.queue.len()
+    }
+
+    fn start_autoplay_request(&self, ctx: &mut EventCtx, seed: TrackId) {
+        let sink = ctx.get_external_handle();
+        let widget_id = ctx.widget_id();
+        let request = Arc::new(RecommendationsRequest::for_track(seed));
+        thread::spawn(move || {
+            let api = WebApi::global();
+            let tracks = api
+                .get_recommendations(Arc::clone(&request))
+                .map(|result| result.tracks)
+                .unwrap_or_default();
+            let _ = sink.submit_command(
+                cmd::AUTOPLAY_READY,
+                cmd::AutoplayResults {
+                    seed,
+                    request,
+                    tracks,
+                },
+                widget_id,
+            );
+        });
+    }
+
+    fn enqueue_autoplay_results(&mut self, data: &mut AppState, results: cmd::AutoplayResults) {
+        self.autoplay_in_flight = false;
+        if self.autoplay_seed != Some(results.seed) || results.tracks.is_empty() {
+            return;
+        }
+        if !data.config.autoplay_enabled {
+            return;
+        }
+
+        let mut autoplay_queue = Vector::new();
+        for track in results.tracks.iter() {
+            if matches!(track.is_playable, Some(false)) {
+                continue;
+            }
+            let entry = QueueEntry {
+                origin: PlaybackOrigin::Recommendations(results.request.clone()),
+                item: Playable::Track(Arc::clone(track)),
+            };
+            let norm_level = if data.config.normalization_enabled {
+                NormalizationLevel::Track
+            } else {
+                NormalizationLevel::None
+            };
+            let item = PlaybackItem {
+                item_id: track.id.0,
+                norm_level,
+            };
+            autoplay_queue.push_back(entry.clone());
+
+            if !matches!(data.playback.state, PlaybackState::Stopped) {
+                self.add_to_queue(&item);
+                data.add_queued_entry(entry);
+            }
+        }
+
+        if matches!(data.playback.state, PlaybackState::Stopped) && !autoplay_queue.is_empty() {
+            data.added_queue = Vector::new();
+            data.playback.queue = autoplay_queue;
+            self.play(&data.playback.queue, 0, data.config.normalization_enabled);
+        }
     }
 
     fn restart_playback_with_config(&mut self, data: &AppState) {
@@ -639,9 +766,23 @@ where
 
                 // Song has changed, so we reset the has_scrobbled value
                 self.has_scrobbled = false;
+                self.autoplay_in_flight = false;
+                self.autoplay_seed = None;
                 self.report_now_playing(&data.playback);
 
                 if let Some(queued) = data.queued_entry(*item) {
+                    if data
+                        .added_queue
+                        .iter()
+                        .any(|entry| entry.item.id() == *item)
+                    {
+                        data.added_queue = data
+                            .added_queue
+                            .iter()
+                            .filter(|entry| entry.item.id() != *item)
+                            .cloned()
+                            .collect();
+                    }
                     data.start_playback(queued.item, queued.origin, progress.to_owned());
                     self.update_media_control_playback(&data.playback);
                     self.update_media_control_metadata(&data.playback);
@@ -679,6 +820,7 @@ where
 
                 self.report_scrobble(&data.playback);
                 self.update_media_control_playback(&data.playback);
+                self.maybe_request_autoplay(ctx, data);
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::PLAYBACK_PAUSING) => {
@@ -702,8 +844,26 @@ where
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::PLAYBACK_STOPPED) => {
+                let was_user_stop = self.user_stop_requested;
+                self.user_stop_requested = false;
+                if !was_user_stop
+                    && data.config.autoplay_enabled
+                    && !self.autoplay_in_flight
+                    && self.autoplay_seed.is_none()
+                    && let Some(now_playing) = &data.playback.now_playing
+                    && let Playable::Track(track) = &now_playing.item
+                {
+                    self.start_autoplay_request(ctx, track.id);
+                    self.autoplay_in_flight = true;
+                    self.autoplay_seed = Some(track.id);
+                }
                 data.stop_playback();
                 self.update_media_control_playback(&data.playback);
+                ctx.set_handled();
+            }
+            Event::Command(cmd) if cmd.is(cmd::AUTOPLAY_READY) => {
+                let results = cmd.get_unchecked(cmd::AUTOPLAY_READY).clone();
+                self.enqueue_autoplay_results(data, results);
                 ctx.set_handled();
             }
             // Remote playback restore removed; using local snapshot file instead.
