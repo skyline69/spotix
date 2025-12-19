@@ -31,6 +31,7 @@ pub struct PlaybackConfig {
     pub bitrate: usize,
     pub pregain: f32,
     pub audio_cache_limit: Option<u64>,
+    pub crossfade_duration: Duration,
 }
 
 impl Default for PlaybackConfig {
@@ -39,6 +40,7 @@ impl Default for PlaybackConfig {
             bitrate: 320,
             pregain: 3.0,
             audio_cache_limit: None,
+            crossfade_duration: Duration::from_secs(0),
         }
     }
 }
@@ -56,6 +58,7 @@ pub struct Player {
     audio_output_sink: DefaultAudioSink,
     playback_mgr: PlaybackManager,
     consecutive_loading_failures: usize,
+    ignore_end_of_track: bool,
 }
 
 impl Player {
@@ -80,6 +83,7 @@ impl Player {
             preload: PreloadState::None,
             queue: Queue::new(),
             consecutive_loading_failures: 0,
+            ignore_end_of_track: false,
         }
     }
 
@@ -179,25 +183,42 @@ impl Player {
         }
     }
 
-    fn handle_position(&mut self, new_position: Duration, path: MediaPath) {
-        match &mut self.state {
-            PlayerState::Playing { position, .. } | PlayerState::Paused { position, .. } => {
+    fn handle_position(&mut self, new_position: Duration, reported_path: MediaPath) {
+        let current_path = match &mut self.state {
+            PlayerState::Playing { path, position } | PlayerState::Paused { path, position } => {
+                if path.item_id != reported_path.item_id || path.file_id != reported_path.file_id {
+                    log::debug!("ignoring stale position report");
+                    return;
+                }
                 *position = new_position;
+                *path
             }
             _ => {
                 log::warn!("received unexpected position report");
+                return;
             }
-        }
+        };
         const PRELOAD_BEFORE_END_OF_TRACK: Duration = Duration::from_secs(30);
-        let time_until_end_of_track = path.duration.checked_sub(new_position).unwrap_or_default();
+        let time_until_end_of_track = current_path
+            .duration
+            .checked_sub(new_position)
+            .unwrap_or_default();
         if time_until_end_of_track <= PRELOAD_BEFORE_END_OF_TRACK
             && let Some(&item_to_preload) = self.queue.get_following()
         {
             self.preload(item_to_preload);
         }
+
+        if matches!(self.state, PlayerState::Playing { .. }) {
+            self.maybe_start_crossfade(new_position, current_path);
+        }
     }
 
     fn handle_end_of_track(&mut self) {
+        if self.ignore_end_of_track {
+            self.ignore_end_of_track = false;
+            return;
+        }
         self.queue.skip_to_following();
         if let Some(&item) = self.queue.get_current() {
             self.load_and_play(item);
@@ -379,6 +400,54 @@ impl Player {
 
     fn configure(&mut self, config: PlaybackConfig) {
         self.config = config;
+    }
+
+    fn maybe_start_crossfade(&mut self, position: Duration, path: MediaPath) {
+        if self.config.crossfade_duration.is_zero() {
+            return;
+        }
+        let time_until_end = path.duration.checked_sub(position).unwrap_or_default();
+        if time_until_end > self.config.crossfade_duration {
+            return;
+        }
+        let next_item = match self.queue.get_following() {
+            Some(&item) => item,
+            None => return,
+        };
+        let loaded_item = match mem::replace(&mut self.preload, PreloadState::None) {
+            PreloadState::Preloaded {
+                item: preloaded_item,
+                loaded_item,
+            } if preloaded_item == next_item => loaded_item,
+            other => {
+                self.preload = other;
+                return;
+            }
+        };
+
+        let next_path = loaded_item.file.path();
+        if !self
+            .playback_mgr
+            .start_crossfade(loaded_item, self.config.crossfade_duration)
+        {
+            self.preload(next_item);
+            return;
+        }
+
+        self.queue.skip_to_following();
+        self.consecutive_loading_failures = 0;
+        self.ignore_end_of_track = true;
+        let position = Duration::default();
+        self.state = PlayerState::Playing {
+            path: next_path,
+            position,
+        };
+        self.sender
+            .send(PlayerEvent::Playing {
+                path: next_path,
+                position,
+            })
+            .unwrap();
     }
 
     fn is_near_playback_start(&self) -> bool {

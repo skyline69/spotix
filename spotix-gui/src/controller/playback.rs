@@ -153,10 +153,10 @@ impl PlaybackController {
                         .submit_command(cmd::PLAYBACK_RESUMING, (), widget_id)
                         .unwrap();
                 }
-                PlayerEvent::Position { position, .. } => {
+                PlayerEvent::Position { position, path } => {
                     let progress = position.to_owned();
                     event_sink
-                        .submit_command(cmd::PLAYBACK_PROGRESS, progress, widget_id)
+                        .submit_command(cmd::PLAYBACK_PROGRESS, (path.item_id, progress), widget_id)
                         .unwrap();
                 }
                 PlayerEvent::Blocked { .. } => {
@@ -639,8 +639,16 @@ where
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::PLAYBACK_PROGRESS) => {
-                let progress = cmd.get_unchecked(cmd::PLAYBACK_PROGRESS);
-                data.progress_playback(progress.to_owned());
+                let (item_id, progress) = cmd.get_unchecked(cmd::PLAYBACK_PROGRESS);
+                let is_current = data
+                    .playback
+                    .now_playing
+                    .as_ref()
+                    .map(|now_playing| now_playing.item.id() == *item_id)
+                    .unwrap_or(false);
+                if is_current {
+                    data.progress_playback(progress.to_owned());
+                }
 
                 self.report_scrobble(&data.playback);
                 self.update_media_control_playback(&data.playback);
@@ -936,6 +944,16 @@ where
 
         if lastfm_changed {
             self.scrobbler = init_scrobbler_instance(data);
+        }
+
+        let playback_config_changed = old_data.config.audio_quality != data.config.audio_quality
+            || old_data.config.audio_cache_limit_mb != data.config.audio_cache_limit_mb
+            || old_data.config.crossfade_duration_secs != data.config.crossfade_duration_secs;
+
+        if playback_config_changed {
+            self.send(PlayerEvent::Command(PlayerCommand::Configure {
+                config: data.config.playback(),
+            }));
         }
 
         child.update(ctx, old_data, data, env);

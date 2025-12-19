@@ -267,6 +267,29 @@ fn general_tab_widget() -> impl Widget<AppState> {
     col = col.with_spacer(theme::grid(3.0));
 
     col = col
+        .with_child(Label::new("Crossfade Duration").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(2.0))
+        .with_child(
+            Flex::row()
+                .with_child(
+                    SizedBox::new(Label::dynamic(|state: &AppState, _| {
+                        format!("{:.1}s", state.config.crossfade_duration_secs)
+                    }))
+                    .width(40.0),
+                )
+                .with_spacer(theme::grid(0.5))
+                .with_child(
+                    Slider::new()
+                        .with_range(0.0, 12.0)
+                        .lens(AppState::config.then(Config::crossfade_duration_secs)),
+                )
+                .with_spacer(theme::grid(0.5))
+                .with_child(Label::new("Duration")),
+        );
+
+    col = col.with_spacer(theme::grid(3.0));
+
+    col = col
         .with_child(
             Label::new("Max Loaded Tracks (requires restart)").with_font(theme::UI_FONT_MEDIUM),
         )

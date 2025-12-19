@@ -39,7 +39,7 @@ pub const TOGGLE_LYRICS: Selector = Selector::new("app.toggle-lyrics");
 // Playback state
 pub const PLAYBACK_LOADING: Selector<ItemId> = Selector::new("app.playback-loading");
 pub const PLAYBACK_PLAYING: Selector<(ItemId, Duration)> = Selector::new("app.playback-playing");
-pub const PLAYBACK_PROGRESS: Selector<Duration> = Selector::new("app.playback-progress");
+pub const PLAYBACK_PROGRESS: Selector<(ItemId, Duration)> = Selector::new("app.playback-progress");
 pub const PLAYBACK_PAUSING: Selector = Selector::new("app.playback-pausing");
 pub const PLAYBACK_RESUMING: Selector = Selector::new("app.playback-resuming");
 pub const PLAYBACK_BLOCKED: Selector = Selector::new("app.playback-blocked");

@@ -111,14 +111,16 @@ impl Queue {
     }
 
     pub fn get_following(&self) -> Option<&PlaybackItem> {
-        if let Some(position) = self.positions.get(self.position).copied() {
-            if let Some(item) = self.items.get(position) {
-                return Some(item);
-            }
-        } else {
+        if self.items.is_empty() {
             return self.user_items.first();
         }
-        None
+
+        let next_position = self.following_position();
+        if let Some(position) = self.positions.get(next_position).copied() {
+            self.items.get(position)
+        } else {
+            self.user_items.first()
+        }
     }
 
     fn previous_position(&self) -> usize {

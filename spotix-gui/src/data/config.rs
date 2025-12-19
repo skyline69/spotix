@@ -3,6 +3,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{BufReader, BufWriter},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 #[cfg(target_family = "unix")]
@@ -164,6 +165,7 @@ pub struct Config {
     /// Audio cache limit in megabytes. 0 = unlimited.
     pub audio_cache_limit_mb: f64,
     pub enable_pagination: bool,
+    pub crossfade_duration_secs: f64,
     pub lastfm_session_key: Option<String>,
     pub lastfm_api_key: Option<String>,
     pub lastfm_api_secret: Option<String>,
@@ -188,6 +190,7 @@ impl Default for Config {
             seek_duration: 10,
             audio_cache_limit_mb: 4096.0,
             enable_pagination: true,
+            crossfade_duration_secs: 0.0,
             lastfm_session_key: None,
             lastfm_api_key: None,
             lastfm_api_secret: None,
@@ -291,6 +294,7 @@ impl Config {
             } else {
                 Some((self.audio_cache_limit_mb * 1024.0 * 1024.0) as u64)
             },
+            crossfade_duration: Duration::from_secs_f64(self.crossfade_duration_secs.max(0.0)),
             ..PlaybackConfig::default()
         }
     }

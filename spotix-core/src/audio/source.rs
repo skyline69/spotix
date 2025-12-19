@@ -1,5 +1,7 @@
 use crate::audio::resample::ResamplingSpec;
 
+use crossbeam_channel::{Receiver, Sender, bounded};
+
 use super::resample::{AudioResampler, ResamplingQuality};
 
 /// Types that can produce audio samples in `f32` format. `Send`able across
@@ -87,6 +89,162 @@ pub struct ResampledSource<S> {
     resampler: AudioResampler,
     inp: Buf,
     out: Buf,
+}
+
+pub enum CrossfadeCommand {
+    ReplaceSource(Box<dyn AudioSource>),
+    StartCrossfade {
+        next: Box<dyn AudioSource>,
+        duration_frames: u64,
+    },
+    Clear,
+}
+
+pub struct CrossfadeSource {
+    receiver: Receiver<CrossfadeCommand>,
+    current: Box<dyn AudioSource>,
+    next: Option<Box<dyn AudioSource>>,
+    fade: Option<FadeState>,
+    buffer_a: Vec<f32>,
+    buffer_b: Vec<f32>,
+    channels: usize,
+    sample_rate: u32,
+}
+
+struct FadeState {
+    total_frames: u64,
+    pos_frames: u64,
+}
+
+impl CrossfadeSource {
+    pub fn new(initial: Box<dyn AudioSource>) -> (Self, Sender<CrossfadeCommand>) {
+        let (sender, receiver) = bounded(8);
+        let channels = initial.channel_count();
+        let sample_rate = initial.sample_rate();
+        let source = Self {
+            receiver,
+            current: initial,
+            next: None,
+            fade: None,
+            buffer_a: Vec::new(),
+            buffer_b: Vec::new(),
+            channels,
+            sample_rate,
+        };
+        (source, sender)
+    }
+
+    fn drain_commands(&mut self) {
+        while let Ok(msg) = self.receiver.try_recv() {
+            match msg {
+                CrossfadeCommand::ReplaceSource(source) => {
+                    self.channels = source.channel_count();
+                    self.sample_rate = source.sample_rate();
+                    self.current = source;
+                    self.next = None;
+                    self.fade = None;
+                }
+                CrossfadeCommand::StartCrossfade {
+                    next,
+                    duration_frames,
+                } => {
+                    if duration_frames == 0 {
+                        self.channels = next.channel_count();
+                        self.sample_rate = next.sample_rate();
+                        self.current = next;
+                        self.next = None;
+                        self.fade = None;
+                        continue;
+                    }
+                    self.next = Some(next);
+                    self.fade = Some(FadeState {
+                        total_frames: duration_frames,
+                        pos_frames: 0,
+                    });
+                }
+                CrossfadeCommand::Clear => {
+                    self.current = Box::new(Empty);
+                    self.next = None;
+                    self.fade = None;
+                }
+            }
+        }
+    }
+
+    fn ensure_buffer_sizes(&mut self, len: usize) {
+        if self.buffer_a.len() < len {
+            self.buffer_a.resize(len, 0.0);
+        }
+        if self.buffer_b.len() < len {
+            self.buffer_b.resize(len, 0.0);
+        }
+    }
+}
+
+impl AudioSource for CrossfadeSource {
+    fn write(&mut self, output: &mut [f32]) -> usize {
+        self.drain_commands();
+
+        if self.fade.is_some() {
+            if self.channels == 0 {
+                return 0;
+            }
+            let frames = output.len() / self.channels;
+            if frames == 0 {
+                return 0;
+            }
+            let max_len = frames * self.channels;
+            self.ensure_buffer_sizes(max_len);
+
+            let mut fade = self.fade.take().expect("fade state present");
+            let current_written = self.current.write(&mut self.buffer_a[..max_len]);
+            self.buffer_a[current_written..max_len].fill(0.0);
+
+            let next_written = self
+                .next
+                .as_mut()
+                .map(|src| src.write(&mut self.buffer_b[..max_len]))
+                .unwrap_or(0);
+            self.buffer_b[next_written..max_len].fill(0.0);
+
+            let total_frames = fade.total_frames.max(1) as f32;
+            for frame in 0..frames {
+                let t = ((fade.pos_frames + frame as u64) as f32 / total_frames).min(1.0);
+                let from_gain = 1.0 - t;
+                let to_gain = t;
+                let base = frame * self.channels;
+                for ch in 0..self.channels {
+                    let idx = base + ch;
+                    output[idx] = self.buffer_a[idx] * from_gain + self.buffer_b[idx] * to_gain;
+                }
+            }
+            output[max_len..].iter_mut().for_each(|s| *s = 0.0);
+
+            fade.pos_frames += frames as u64;
+            if fade.pos_frames >= fade.total_frames {
+                if let Some(next) = self.next.take() {
+                    self.channels = next.channel_count();
+                    self.sample_rate = next.sample_rate();
+                    self.current = next;
+                }
+                self.fade = None;
+            } else {
+                self.fade = Some(fade);
+            }
+
+            max_len
+        } else {
+            self.current.write(output)
+        }
+    }
+
+    fn channel_count(&self) -> usize {
+        self.channels
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
 }
 
 impl<S> ResampledSource<S> {

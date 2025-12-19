@@ -20,7 +20,9 @@ use crate::{
         decode::AudioDecoder,
         output::{AudioSink, DefaultAudioSink},
         resample::ResamplingQuality,
-        source::{AudioSource, ResampledSource, StereoMappedSource},
+        source::{
+            AudioSource, CrossfadeCommand, CrossfadeSource, ResampledSource, StereoMappedSource,
+        },
     },
     error::Error,
 };
@@ -34,6 +36,7 @@ pub struct PlaybackManager {
     sink: DefaultAudioSink,
     event_send: Sender<PlayerEvent>,
     current: Option<(MediaPath, Sender<Msg>)>,
+    crossfade_send: Option<Sender<CrossfadeCommand>>,
 }
 
 impl PlaybackManager {
@@ -42,37 +45,40 @@ impl PlaybackManager {
             sink,
             event_send,
             current: None,
+            crossfade_send: None,
         }
     }
 
     pub fn play(&mut self, loaded: LoadedPlaybackItem) {
-        let path = loaded.file.path();
-        let source = DecoderSource::new(
-            loaded.file,
-            loaded.source,
-            loaded.norm_factor,
-            self.event_send.clone(),
-        );
-        self.current = Some((path, source.actor.sender()));
-        if source.sample_rate() == self.sink.sample_rate()
-            && source.channel_count() == self.sink.channel_count()
-        {
-            // We can start playing the source right away.
-            self.sink.play(source);
-        } else {
-            // Some output streams have different sample rate than the source, so we need to
-            // resample before pushing to the sink.
-            let source = ResampledSource::new(
-                source,
-                self.sink.sample_rate(),
-                ResamplingQuality::SincMediumQuality,
-            );
-            // Source output streams also have a different channel count. Map the stereo
-            // channels and silence the others.
-            let source = StereoMappedSource::new(source, self.sink.channel_count());
-            self.sink.play(source);
-        }
+        let output = self.build_output_source(loaded);
+        self.current = Some((output.path, output.seek_sender));
+        let (source, sender) = CrossfadeSource::new(output.source);
+        self.crossfade_send = Some(sender);
+        self.sink.play(source);
         self.sink.resume();
+    }
+
+    pub fn start_crossfade(&mut self, loaded: LoadedPlaybackItem, duration: Duration) -> bool {
+        let sender = match &self.crossfade_send {
+            Some(sender) => sender.clone(),
+            None => return false,
+        };
+        let output = self.build_output_source(loaded);
+        self.current = Some((output.path, output.seek_sender));
+        let frames = (duration.as_secs_f64() * self.sink.sample_rate() as f64) as u64;
+        let msg = if frames == 0 {
+            CrossfadeCommand::ReplaceSource(output.source)
+        } else {
+            CrossfadeCommand::StartCrossfade {
+                next: output.source,
+                duration_frames: frames,
+            }
+        };
+        if sender.send(msg).is_err() {
+            self.crossfade_send = None;
+            return false;
+        }
+        true
     }
 
     pub fn seek(&self, position: Duration) {
@@ -88,6 +94,45 @@ impl PlaybackManager {
             });
         }
     }
+
+    fn build_output_source(&self, loaded: LoadedPlaybackItem) -> OutputSource {
+        let path = loaded.file.path();
+        let source = DecoderSource::new(
+            loaded.file,
+            loaded.source,
+            loaded.norm_factor,
+            self.event_send.clone(),
+        );
+        let seek_sender = source.actor.sender();
+
+        if source.sample_rate() == self.sink.sample_rate()
+            && source.channel_count() == self.sink.channel_count()
+        {
+            OutputSource {
+                source: Box::new(source),
+                path,
+                seek_sender,
+            }
+        } else {
+            let source = ResampledSource::new(
+                source,
+                self.sink.sample_rate(),
+                ResamplingQuality::SincMediumQuality,
+            );
+            let source = StereoMappedSource::new(source, self.sink.channel_count());
+            OutputSource {
+                source: Box::new(source),
+                path,
+                seek_sender,
+            }
+        }
+    }
+}
+
+struct OutputSource {
+    source: Box<dyn AudioSource>,
+    path: MediaPath,
+    seek_sender: Sender<Msg>,
 }
 
 pub struct DecoderSource {
