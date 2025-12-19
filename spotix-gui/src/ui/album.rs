@@ -289,15 +289,13 @@ impl Lens<Ctx<Arc<CommonCtx>, Cached<Arc<Album>>>, Ctx<Arc<CommonCtx>, Vector<Ar
         F: FnOnce(&Ctx<Arc<CommonCtx>, Vector<Arc<Track>>>) -> V,
     {
         let query = data.ctx.library_search.trim().to_lowercase();
+        let tracks_with_album = data.data.data.clone().into_tracks_with_context();
         let filtered = if query.is_empty() || !matches!(data.ctx.nav, Nav::AlbumDetail(_, _)) {
-            data.data.data.tracks.clone()
+            tracks_with_album
         } else {
-            data.data
-                .data
-                .tracks
-                .iter()
+            tracks_with_album
+                .into_iter()
                 .filter(|track| matches_track_query(track, &query))
-                .cloned()
                 .collect()
         };
         let mapped = Ctx::new(data.ctx.clone(), filtered);
@@ -309,7 +307,7 @@ impl Lens<Ctx<Arc<CommonCtx>, Cached<Arc<Album>>>, Ctx<Arc<CommonCtx>, Vector<Ar
         F: FnOnce(&mut Ctx<Arc<CommonCtx>, Vector<Arc<Track>>>) -> V,
     {
         let ctx = data.ctx.clone();
-        let mut mapped = Ctx::new(ctx, data.data.data.tracks.clone());
+        let mut mapped = Ctx::new(ctx, data.data.data.clone().into_tracks_with_context());
         let v = f(&mut mapped);
         data.ctx = mapped.ctx;
         v

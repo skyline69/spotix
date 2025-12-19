@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use spotix_core::item_id::ItemId;
 
 use super::{
-    AlbumLink, ArtistLink, Episode, Library, Nav, PlaylistLink, RecommendationsRequest, ShowLink,
-    Track,
+    AlbumLink, ArtistLink, Episode, Image, Library, Nav, PlaylistLink, RecommendationsRequest,
+    ShowLink, Track,
 };
 
 #[derive(Clone, Data, Lens)]
@@ -102,13 +102,25 @@ pub struct NowPlaying {
 
 impl NowPlaying {
     pub fn cover_image_url(&self, width: f64, height: f64) -> Option<&str> {
+        fn pick_image(images: &Vector<Image>, width: f64, height: f64) -> Option<&str> {
+            Image::at_least_of_size(images, width, height)
+                .or_else(|| images.front())
+                .map(|img| img.url.as_ref())
+        }
+
         match &self.item {
             Playable::Track(track) => {
-                let album = track.album.as_ref().or(match &self.origin {
-                    PlaybackOrigin::Album(album) => Some(album),
-                    _ => None,
-                })?;
-                Some(&album.image(width, height)?.url)
+                if let Some(album) = track.album.as_ref()
+                    && let Some(url) = pick_image(&album.images, width, height)
+                {
+                    return Some(url);
+                }
+                if let PlaybackOrigin::Album(album) = &self.origin
+                    && let Some(url) = pick_image(&album.images, width, height)
+                {
+                    return Some(url);
+                }
+                None
             }
             Playable::Episode(episode) => Some(&episode.image(width, height)?.url),
         }
@@ -116,17 +128,24 @@ impl NowPlaying {
 
     pub fn cover_image_metadata(&self) -> Option<(&str, (u32, u32))> {
         match &self.item {
-            Playable::Track(track) => track.album.as_ref().and_then(|album| {
-                album.images.get(0).map(|img| {
-                    (
-                        &*img.url,
-                        (
-                            img.width.unwrap_or(0) as u32,
-                            img.height.unwrap_or(0) as u32,
-                        ),
-                    )
+            Playable::Track(track) => track
+                .album
+                .as_ref()
+                .or(match &self.origin {
+                    PlaybackOrigin::Album(album) => Some(album),
+                    _ => None,
                 })
-            }),
+                .and_then(|album| {
+                    album.images.get(0).map(|img| {
+                        (
+                            &*img.url,
+                            (
+                                img.width.unwrap_or(0) as u32,
+                                img.height.unwrap_or(0) as u32,
+                            ),
+                        )
+                    })
+                }),
             Playable::Episode(episode) => episode.images.get(0).map(|img| {
                 (
                     &*img.url,
