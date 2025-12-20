@@ -1,5 +1,5 @@
 use std::sync::OnceLock;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use druid::piet::{Text, TextLayout, TextLayoutBuilder};
 use druid::widget::Controller;
@@ -129,6 +129,7 @@ impl<W: Widget<AppState>> Controller<AppState, W> for LyricsProgressController {
 struct LyricsScrollController {
     scroll_timer: Option<TimerToken>,
     scroll_retries: u8,
+    last_user_scroll: Option<Instant>,
 }
 
 impl<W: Widget<AppState>> Controller<AppState, Scroll<AppState, W>> for LyricsScrollController {
@@ -167,13 +168,21 @@ impl<W: Widget<AppState>> Controller<AppState, Scroll<AppState, W>> for LyricsSc
                 }
             }
         }
+        if let Event::Wheel(_) = event {
+            self.last_user_scroll = Some(Instant::now());
+        }
         if let Event::Command(cmd) = event
             && cmd.is(SCROLL_LYRIC_TO)
         {
             let line_center = *cmd.get_unchecked(SCROLL_LYRIC_TO);
             let view_center = ctx.window_origin().y + ctx.size().height * 0.5;
             let delta = line_center - view_center;
-            if delta.abs() > 1.0 {
+            let recent_manual = self
+                .last_user_scroll
+                .map(|t| t.elapsed() < Duration::from_secs(2))
+                .unwrap_or(false);
+            let near_center = delta.abs() < ctx.size().height * 0.35;
+            if delta.abs() > 1.0 && (!recent_manual || near_center) {
                 child.scroll_by(ctx, Vec2::new(0.0, delta));
             }
             ctx.set_handled();
@@ -287,16 +296,20 @@ impl Widget<WithCtx<TrackLines>> for LyricLine {
         env: &druid::Env,
     ) -> Size {
         let text = data.data.words.as_str();
+        let padding_x = theme::grid(1.0);
+        let max_width = (bc.max().width - padding_x * 2.0).max(0.0);
+        let font_size = lyric_text_size_for_width(bc.max().width);
         let layout = _ctx
             .text()
             .new_text_layout(text.to_string())
-            .font(env.get(theme::UI_FONT).family.clone(), lyric_text_size())
-            .max_width(bc.max().width)
+            .font(env.get(theme::UI_FONT).family.clone(), font_size)
+            .max_width(max_width)
             .alignment(TextAlignment::Start)
             .build()
             .unwrap();
-        let padding = Size::new(theme::grid(1.0), theme::grid(0.75));
-        let height = layout.size().height + padding.height * 2.0;
+        let lines = lyric_line_count(layout.size().height, font_size);
+        let padding_y = lyric_padding_y(lines);
+        let height = layout.size().height + padding_y * 2.0;
         let width = bc.max().width;
         Size::new(width, height)
     }
@@ -317,17 +330,20 @@ impl Widget<WithCtx<TrackLines>> for LyricLine {
             (env.get(theme::GREY_100), druid::piet::FontWeight::REGULAR)
         };
 
-        let padding = (theme::grid(1.0), theme::grid(0.75));
+        let padding_x = theme::grid(1.0);
+        let font_size = lyric_text_size_for_width(ctx.size().width);
         let layout = ctx
             .text()
             .new_text_layout(data.data.words.to_string())
-            .font(env.get(theme::UI_FONT).family.clone(), lyric_text_size())
+            .font(env.get(theme::UI_FONT).family.clone(), font_size)
             .default_attribute(druid::piet::TextAttribute::Weight(weight))
             .text_color(text_color)
-            .max_width(ctx.size().width - padding.0 * 2.0)
+            .max_width((ctx.size().width - padding_x * 2.0).max(0.0))
             .alignment(TextAlignment::Start)
             .build()
             .unwrap();
+        let lines = lyric_line_count(layout.size().height, font_size);
+        let padding = (theme::grid(1.0), lyric_padding_y(lines));
         ctx.draw_text(&layout, Point::new(padding.0, padding.1));
     }
 }
@@ -409,8 +425,31 @@ impl LyricScrollCtx for UpdateCtx<'_, '_> {
     }
 }
 
-fn lyric_text_size() -> f64 {
-    32.0
+fn lyric_text_size_for_width(width: f64) -> f64 {
+    if width < theme::grid(48.0) {
+        20.0
+    } else if width < theme::grid(60.0) {
+        22.0
+    } else if width < theme::grid(72.0) {
+        24.0
+    } else {
+        26.0
+    }
+}
+
+fn lyric_line_count(layout_height: f64, font_size: f64) -> usize {
+    let line_height = font_size * 1.1;
+    let lines = (layout_height / line_height).ceil().max(1.0);
+    lines as usize
+}
+
+fn lyric_padding_y(lines: usize) -> f64 {
+    let base = theme::grid(0.5);
+    if lines > 1 {
+        base + theme::grid(0.8) + theme::grid(0.35) * (lines.saturating_sub(2) as f64)
+    } else {
+        base
+    }
 }
 
 fn lyric_state(data: &WithCtx<TrackLines>) -> (bool, bool) {
