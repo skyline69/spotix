@@ -121,10 +121,17 @@ fn async_results_widget() -> impl Widget<AppState> {
     )
     .on_command(SET_TOPIC, |ctx, topic, data: &mut AppState| {
         data.search.topic = *topic;
-        if !data.search.input.is_empty() {
-            ctx.submit_command(
-                LOAD_RESULTS.with((data.search.input.clone().into(), data.search.topic)),
-            );
+        let query = if data.search.input.trim().is_empty() {
+            data.search
+                .results
+                .deferred()
+                .map(|(q, _)| q.clone())
+        } else {
+            Some(data.search.input.trim().to_string().into())
+        };
+
+        if let Some(query) = query {
+            ctx.submit_command(LOAD_RESULTS.with((query, data.search.topic)));
         }
     })
     .on_command_async(
