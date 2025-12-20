@@ -87,6 +87,7 @@ foreground = "#cdd6f4"
 highlight = "#f38ba8"
 lyric_highlight = "#cba6f7"
 lyric_past = "#6c7086"
+lyric_hover = "#cdd6f4"
 ```
 - Select themes in Settings → General. Custom themes are listed by their `name`.
 

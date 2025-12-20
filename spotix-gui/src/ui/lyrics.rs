@@ -4,9 +4,9 @@ use std::time::{Duration, Instant};
 use druid::piet::{Text, TextLayout, TextLayoutBuilder};
 use druid::widget::Controller;
 use druid::{
-    BoxConstraints, Data, Event, EventCtx, LayoutCtx, LensExt, LifeCycle, LifeCycleCtx, PaintCtx,
-    Point, RenderContext, Selector, Size, Target, TimerToken, UpdateCtx, Vec2, Widget, WidgetExt,
-    WidgetId,
+    BoxConstraints, Cursor, Data, Event, EventCtx, LayoutCtx, LensExt, LifeCycle, LifeCycleCtx,
+    PaintCtx, Point, RenderContext, Selector, Size, Target, TimerToken, UpdateCtx, Vec2, Widget,
+    WidgetExt, WidgetId,
     text::TextAlignment,
     widget::{Container, CrossAxisAlignment, Flex, Label, List, Scroll},
 };
@@ -249,6 +249,13 @@ impl Widget<WithCtx<TrackLines>> for LyricLine {
                 }
                 ctx.set_handled();
             }
+            Event::MouseMove(_) => {
+                if ctx.is_hot() {
+                    ctx.set_cursor(&Cursor::Pointer);
+                } else {
+                    ctx.clear_cursor();
+                }
+            }
             _ => {}
         }
     }
@@ -322,10 +329,13 @@ impl Widget<WithCtx<TrackLines>> for LyricLine {
                 env.get(theme::LYRIC_HIGHLIGHT),
                 druid::piet::FontWeight::BOLD,
             )
+        } else if self.hovered {
+            (
+                env.get(theme::LYRIC_HOVER),
+                druid::piet::FontWeight::REGULAR,
+            )
         } else if past {
             (env.get(theme::GREY_500), druid::piet::FontWeight::REGULAR)
-        } else if self.hovered {
-            (env.get(theme::GREY_000), druid::piet::FontWeight::REGULAR)
         } else {
             (env.get(theme::GREY_100), druid::piet::FontWeight::REGULAR)
         };

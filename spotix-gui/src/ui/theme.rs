@@ -51,6 +51,7 @@ pub const ICON_SIZE_MEDIUM: Size = Size::new(16.0, 16.0);
 pub const ICON_SIZE_LARGE: Size = Size::new(22.0, 22.0);
 pub const LYRIC_HIGHLIGHT: Key<Color> = Key::new("app.lyric-highlight");
 pub const LYRIC_PAST: Key<Color> = Key::new("app.lyric-past");
+pub const LYRIC_HOVER: Key<Color> = Key::new("app.lyric-hover");
 
 pub const LINK_HOT_COLOR: Key<Color> = Key::new("app.link-hot-color");
 pub const LINK_ACTIVE_COLOR: Key<Color> = Key::new("app.link-active-color");
@@ -195,9 +196,6 @@ pub fn setup(env: &mut Env, state: &AppState) {
 
     env.set(SELECTED_TEXT_BACKGROUND_COLOR, env.get(BLUE_200));
     env.set(SELECTION_TEXT_COLOR, env.get(GREY_700));
-    env.set(LYRIC_HIGHLIGHT, env.get(BLUE_100));
-    env.set(LYRIC_PAST, env.get(GREY_500));
-
     env.set(CURSOR_COLOR, env.get(GREY_000));
 
     env.set(PROGRESS_BAR_RADIUS, 4.0);
@@ -284,6 +282,7 @@ struct ThemeColors {
     link_cold: Option<String>,
     lyric_highlight: Option<String>,
     lyric_past: Option<String>,
+    lyric_hover: Option<String>,
     playback_toggle_bg_active: Option<String>,
     playback_toggle_bg_inactive: Option<String>,
     playback_toggle_fg_active: Option<String>,
@@ -392,6 +391,7 @@ fn apply_theme_colors(env: &mut Env, colors: &ThemeColors) {
         "lyric_highlight",
     );
     set_color(env, LYRIC_PAST, &colors.lyric_past, "lyric_past");
+    set_color(env, LYRIC_HOVER, &colors.lyric_hover, "lyric_hover");
     set_color(
         env,
         PLAYBACK_TOGGLE_BG_ACTIVE,
@@ -460,6 +460,10 @@ fn setup_light_theme(env: &mut Env) {
     env.set(LINK_HOT_COLOR, Color::rgba(0.0, 0.0, 0.0, 0.06));
     env.set(LINK_ACTIVE_COLOR, Color::rgba(0.0, 0.0, 0.0, 0.04));
     env.set(LINK_COLD_COLOR, Color::rgba(0.0, 0.0, 0.0, 0.0));
+
+    env.set(LYRIC_HIGHLIGHT, env.get(BLUE_100));
+    env.set(LYRIC_PAST, env.get(GREY_500));
+    env.set(LYRIC_HOVER, env.get(BLUE_200));
 }
 
 fn setup_dark_theme(env: &mut Env) {
@@ -482,6 +486,7 @@ fn setup_dark_theme(env: &mut Env) {
 
     env.set(LYRIC_HIGHLIGHT, Color::rgb8(0x1d, 0xb9, 0x54));
     env.set(LYRIC_PAST, Color::rgb8(0x53, 0x53, 0x53));
+    env.set(LYRIC_HOVER, env.get(GREY_300));
     env.set(PLAYBACK_TOGGLE_BG_ACTIVE, Color::rgb8(0x1d, 0xb9, 0x54));
     env.set(PLAYBACK_TOGGLE_BG_INACTIVE, Color::rgb8(0x1f, 0x1f, 0x1f));
     env.set(PLAYBACK_TOGGLE_FG_ACTIVE, Color::rgb8(0x12, 0x12, 0x12));
