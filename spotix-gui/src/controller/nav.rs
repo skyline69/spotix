@@ -3,10 +3,15 @@ use crate::{
     data::{AppState, Nav, SpotifyUrl},
     ui::{album, artist, library, lyrics, playlist, recommend, search, show},
 };
-use druid::Code;
-use druid::widget::{Controller, prelude::*};
+use std::time::Duration;
 
-pub struct NavController;
+use druid::widget::{Controller, prelude::*};
+use druid::{Code, Target, TimerToken};
+
+#[derive(Default)]
+pub struct NavController {
+    scroll_timer: Option<TimerToken>,
+}
 
 impl NavController {
     fn load_route_data(&self, ctx: &mut EventCtx, data: &mut AppState) {
@@ -88,6 +93,11 @@ where
         env: &Env,
     ) {
         match event {
+            Event::Timer(token) if self.scroll_timer == Some(*token) => {
+                self.scroll_timer = None;
+                ctx.submit_command(lyrics::SCROLL_ACTIVE_LYRIC.to(Target::Window(ctx.window_id())));
+                ctx.set_handled();
+            }
             Event::Command(cmd) if cmd.is(cmd::NAVIGATE) => {
                 let nav = cmd.get_unchecked(cmd::NAVIGATE);
                 data.navigate(nav);
@@ -115,6 +125,7 @@ where
                         if let Some(np) = data.playback.now_playing.as_ref() {
                             ctx.submit_command(lyrics::SHOW_LYRICS.with(np.clone()));
                         }
+                        self.scroll_timer = Some(ctx.request_timer(Duration::from_millis(50)));
                     }
                 }
                 ctx.set_handled();

@@ -122,10 +122,7 @@ fn async_results_widget() -> impl Widget<AppState> {
     .on_command(SET_TOPIC, |ctx, topic, data: &mut AppState| {
         data.search.topic = *topic;
         let query = if data.search.input.trim().is_empty() {
-            data.search
-                .results
-                .deferred()
-                .map(|(q, _)| q.clone())
+            data.search.results.deferred().map(|(q, _)| q.clone())
         } else {
             Some(data.search.input.trim().to_string().into())
         };

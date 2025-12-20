@@ -1339,12 +1339,15 @@ where
                         now_playing.item.duration().as_secs_f64() * fraction,
                     );
                     self.seek(position);
+                    data.progress_playback(position);
                 }
                 ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::SKIP_TO_POSITION) => {
                 let location = cmd.get_unchecked(cmd::SKIP_TO_POSITION);
-                self.seek(Duration::from_millis(*location));
+                let position = Duration::from_millis(*location);
+                self.seek(position);
+                data.progress_playback(position);
                 ctx.set_handled();
             }
             // Keyboard shortcuts.
