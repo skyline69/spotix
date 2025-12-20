@@ -49,6 +49,12 @@ enum CachePolicy {
     Refresh,
 }
 
+#[derive(Debug)]
+enum RequestError {
+    Auth(Error),
+    Transport(ureq::Error),
+}
+
 pub struct WebApi {
     session: SessionService,
     agent: Agent,
@@ -107,7 +113,11 @@ impl WebApi {
     }
 
     fn request(&self, request: &RequestBuilder) -> Result<Response<Body>, Error> {
-        let token = self.access_token()?;
+        Self::with_retry(|| self.request_raw(request))
+    }
+
+    fn request_raw(&self, request: &RequestBuilder) -> Result<Response<Body>, RequestError> {
+        let token = self.access_token().map_err(RequestError::Auth)?;
         let url = request.build();
 
         fn configure_request<B>(
@@ -124,45 +134,100 @@ impl WebApi {
         match request.get_method() {
             Method::Get => configure_request(self.agent.get(&url), &token, request.get_headers())
                 .call()
-                .map_err(|err| Error::WebApiError(err.to_string())),
+                .map_err(RequestError::Transport),
             Method::Post => configure_request(self.agent.post(&url), &token, request.get_headers())
                 .send_json(request.get_body())
-                .map_err(|err| Error::WebApiError(err.to_string())),
+                .map_err(RequestError::Transport),
             Method::Put => configure_request(self.agent.put(&url), &token, request.get_headers())
                 .send_json(request.get_body())
-                .map_err(|err| Error::WebApiError(err.to_string())),
+                .map_err(RequestError::Transport),
             Method::Delete => {
                 configure_request(self.agent.delete(&url), &token, request.get_headers())
                     .force_send_body()
                     .send_json(request.get_body())
-                    .map_err(|err| Error::WebApiError(err.to_string()))
+                    .map_err(RequestError::Transport)
             }
         }
     }
 
-    fn with_retry(f: impl Fn() -> Result<Response<Body>, Error>) -> Result<Response<Body>, Error> {
+    fn with_retry(
+        f: impl Fn() -> Result<Response<Body>, RequestError>,
+    ) -> Result<Response<Body>, Error> {
+        const MAX_ATTEMPTS: u8 = 3;
+        const BASE_BACKOFF: Duration = Duration::from_millis(250);
+        const MAX_BACKOFF: Duration = Duration::from_secs(2);
+        let mut attempts = 0;
+        let mut backoff = BASE_BACKOFF;
+
         loop {
-            let response = f()?;
-            match response.status() {
-                StatusCode::TOO_MANY_REQUESTS => {
-                    let retry_after_secs = response
-                        .headers()
-                        .get("Retry-After")
-                        .and_then(|secs| secs.to_str().ok());
-                    let secs = retry_after_secs.unwrap_or("2").parse::<u64>().unwrap_or(2);
-                    thread::sleep(Duration::from_secs(secs));
-                }
-                _ => {
-                    break Ok(response);
+            match f() {
+                Ok(response) => match response.status() {
+                    StatusCode::TOO_MANY_REQUESTS => {
+                        if attempts >= MAX_ATTEMPTS {
+                            break Err(Error::WebApiError(
+                                "request throttled (HTTP 429)".to_string(),
+                            ));
+                        }
+                        let retry_after_secs = response
+                            .headers()
+                            .get("Retry-After")
+                            .and_then(|secs| secs.to_str().ok());
+                        let response_delay =
+                            retry_after_secs.unwrap_or("2").parse::<u64>().unwrap_or(2);
+                        thread::sleep(Duration::from_secs(response_delay));
+                        attempts += 1;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                    }
+                    StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => {
+                        if attempts >= MAX_ATTEMPTS {
+                            break Err(Error::WebApiError(
+                                "request timed out (HTTP 408/504)".to_string(),
+                            ));
+                        }
+                        thread::sleep(backoff);
+                        attempts += 1;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                    }
+                    _ => break Ok(response),
+                },
+                Err(RequestError::Auth(err)) => break Err(err),
+                Err(RequestError::Transport(err)) => {
+                    let should_retry = Self::is_retryable_error(&err);
+                    if should_retry && attempts < MAX_ATTEMPTS {
+                        thread::sleep(backoff);
+                        attempts += 1;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                        continue;
+                    }
+                    break Err(Error::from(err));
                 }
             }
+        }
+    }
+
+    fn is_retryable_error(err: &ureq::Error) -> bool {
+        match err {
+            ureq::Error::Timeout(_) => true,
+            ureq::Error::ConnectionFailed | ureq::Error::HostNotFound => true,
+            ureq::Error::Io(err) => matches!(
+                err.kind(),
+                io::ErrorKind::TimedOut
+                    | io::ErrorKind::ConnectionAborted
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::NotConnected
+                    | io::ErrorKind::Interrupted
+                    | io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::ConnectionRefused
+            ),
+            ureq::Error::StatusCode(code) => matches!(*code, 408 | 429 | 504),
+            _ => false,
         }
     }
 
     /// Send a request with an empty JSON object, throw away the response body.
     /// Use for POST/PUT/DELETE requests.
     fn send_empty_json(&self, request: &RequestBuilder) -> Result<(), Error> {
-        Self::with_retry(|| self.request(request)).map(|_| ())
+        self.request(request).map(|_| ())
     }
 
     /// Send a request using `self.load()`, but only if it isn't already present
@@ -204,7 +269,7 @@ impl WebApi {
             let value = serde_json::from_reader(file)?;
             Ok((value, Some(cached_at)))
         } else {
-            let response = Self::with_retry(|| self.request(request))?;
+            let response = self.request(request)?;
             let body = {
                 let mut reader = response.into_body().into_reader();
                 let mut body = Vec::new();

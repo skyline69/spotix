@@ -11,11 +11,13 @@ It focuses on low overhead, a clean UI, and a lightweight runtime (no Electron).
 
 ## Additional features over upstream psst
 - Theme support with TOML themes (including custom colors and lyric highlighting)
+- Spotify-style default dark theme with bundled Spotify Mix fonts
 - Configurable cache size limit and cache usage display in preferences
 - Playlist pagination toggle and real-time library search (playlists, albums, tracks, podcasts, albums)
-- Saved playback state restoration (resume last track/position) and improved lyrics view (highlight, focus)
+- Saved playback state restoration (resume last track/position) and improved lyrics view (highlight, focus, auto-scroll)
 - More fluid seek bar, bottom-bar cover click opens album, and platform release binaries
 - More up-to-date dependencies and ongoing maintenance on the fork
+- Automatic retry for transient network timeouts and throttling
 
 ## Status
 - Early development; expect missing features and rough edges
