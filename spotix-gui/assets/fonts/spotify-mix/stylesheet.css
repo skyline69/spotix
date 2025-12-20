@@ -1,0 +1,208 @@
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-Regular.eot');
+    src: local('Spotify Mix Regular'), local('SpotifyMix-Regular'),
+        url('SpotifyMix-Regular.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-Regular.woff2') format('woff2'),
+        url('SpotifyMix-Regular.woff') format('woff'),
+        url('SpotifyMix-Regular.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-LightItalic.eot');
+    src: local('Spotify Mix Light Italic'), local('SpotifyMix-LightItalic'),
+        url('SpotifyMix-LightItalic.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-LightItalic.woff2') format('woff2'),
+        url('SpotifyMix-LightItalic.woff') format('woff'),
+        url('SpotifyMix-LightItalic.ttf') format('truetype');
+    font-weight: 300;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-ExtraboldItalic.eot');
+    src: local('Spotify Mix Extrabold Italic'), local('SpotifyMix-ExtraboldItalic'),
+        url('SpotifyMix-ExtraboldItalic.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-ExtraboldItalic.woff2') format('woff2'),
+        url('SpotifyMix-ExtraboldItalic.woff') format('woff'),
+        url('SpotifyMix-ExtraboldItalic.ttf') format('truetype');
+    font-weight: bold;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-Extrabold.eot');
+    src: local('Spotify Mix Extrabold'), local('SpotifyMix-Extrabold'),
+        url('SpotifyMix-Extrabold.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-Extrabold.woff2') format('woff2'),
+        url('SpotifyMix-Extrabold.woff') format('woff'),
+        url('SpotifyMix-Extrabold.ttf') format('truetype');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-Light.eot');
+    src: local('Spotify Mix Light'), local('SpotifyMix-Light'),
+        url('SpotifyMix-Light.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-Light.woff2') format('woff2'),
+        url('SpotifyMix-Light.woff') format('woff'),
+        url('SpotifyMix-Light.ttf') format('truetype');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-BlackItalic.eot');
+    src: local('Spotify Mix Black Italic'), local('SpotifyMix-BlackItalic'),
+        url('SpotifyMix-BlackItalic.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-BlackItalic.woff2') format('woff2'),
+        url('SpotifyMix-BlackItalic.woff') format('woff'),
+        url('SpotifyMix-BlackItalic.ttf') format('truetype');
+    font-weight: 900;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-RegularItalic.eot');
+    src: local('Spotify Mix Regular Italic'), local('SpotifyMix-RegularItalic'),
+        url('SpotifyMix-RegularItalic.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-RegularItalic.woff2') format('woff2'),
+        url('SpotifyMix-RegularItalic.woff') format('woff'),
+        url('SpotifyMix-RegularItalic.ttf') format('truetype');
+    font-weight: normal;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-BoldItalic.eot');
+    src: local('Spotify Mix Bold Italic'), local('SpotifyMix-BoldItalic'),
+        url('SpotifyMix-BoldItalic.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-BoldItalic.woff2') format('woff2'),
+        url('SpotifyMix-BoldItalic.woff') format('woff'),
+        url('SpotifyMix-BoldItalic.ttf') format('truetype');
+    font-weight: bold;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-MediumItalic.eot');
+    src: local('Spotify Mix Medium Italic'), local('SpotifyMix-MediumItalic'),
+        url('SpotifyMix-MediumItalic.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-MediumItalic.woff2') format('woff2'),
+        url('SpotifyMix-MediumItalic.woff') format('woff'),
+        url('SpotifyMix-MediumItalic.ttf') format('truetype');
+    font-weight: 500;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-Black.eot');
+    src: local('Spotify Mix Black'), local('SpotifyMix-Black'),
+        url('SpotifyMix-Black.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-Black.woff2') format('woff2'),
+        url('SpotifyMix-Black.woff') format('woff'),
+        url('SpotifyMix-Black.ttf') format('truetype');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-Medium.eot');
+    src: local('Spotify Mix Medium'), local('SpotifyMix-Medium'),
+        url('SpotifyMix-Medium.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-Medium.woff2') format('woff2'),
+        url('SpotifyMix-Medium.woff') format('woff'),
+        url('SpotifyMix-Medium.ttf') format('truetype');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-Bold.eot');
+    src: local('Spotify Mix Bold'), local('SpotifyMix-Bold'),
+        url('SpotifyMix-Bold.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-Bold.woff2') format('woff2'),
+        url('SpotifyMix-Bold.woff') format('woff'),
+        url('SpotifyMix-Bold.ttf') format('truetype');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-ThinItalic.eot');
+    src: local('Spotify Mix Thin Italic'), local('SpotifyMix-ThinItalic'),
+        url('SpotifyMix-ThinItalic.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-ThinItalic.woff2') format('woff2'),
+        url('SpotifyMix-ThinItalic.woff') format('woff'),
+        url('SpotifyMix-ThinItalic.ttf') format('truetype');
+    font-weight: 100;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix Ultra';
+    src: url('SpotifyMix-UltraItalic.eot');
+    src: local('Spotify Mix Ultra Italic'), local('SpotifyMix-UltraItalic'),
+        url('SpotifyMix-UltraItalic.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-UltraItalic.woff2') format('woff2'),
+        url('SpotifyMix-UltraItalic.woff') format('woff'),
+        url('SpotifyMix-UltraItalic.ttf') format('truetype');
+    font-weight: 900;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix';
+    src: url('SpotifyMix-Thin.eot');
+    src: local('Spotify Mix Thin'), local('SpotifyMix-Thin'),
+        url('SpotifyMix-Thin.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-Thin.woff2') format('woff2'),
+        url('SpotifyMix-Thin.woff') format('woff'),
+        url('SpotifyMix-Thin.ttf') format('truetype');
+    font-weight: 100;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Spotify Mix Ultra';
+    src: url('SpotifyMix-Ultra.eot');
+    src: local('Spotify Mix Ultra'), local('SpotifyMix-Ultra'),
+        url('SpotifyMix-Ultra.eot?#iefix') format('embedded-opentype'),
+        url('SpotifyMix-Ultra.woff2') format('woff2'),
+        url('SpotifyMix-Ultra.woff') format('woff'),
+        url('SpotifyMix-Ultra.ttf') format('truetype');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+

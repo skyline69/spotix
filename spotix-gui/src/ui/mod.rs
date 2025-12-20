@@ -563,7 +563,7 @@ fn topbar_search_widget() -> impl Widget<AppState> {
         |data: &AppState, _| search_supported(&data.nav),
         |enabled, _data: &AppState, _| match enabled {
             true => TextBox::new()
-                .with_placeholder("Search")
+                .with_placeholder("Search in here")
                 .with_text_size(theme::TEXT_SIZE_SMALL)
                 .fix_width(theme::grid(18.0))
                 .padding((theme::grid(1.0), theme::grid(0.5)))

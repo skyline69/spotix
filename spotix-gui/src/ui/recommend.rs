@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use druid::{
-    FontDescriptor, FontFamily, LensExt, Selector, Widget, WidgetExt,
+    LensExt, Selector, Widget, WidgetExt,
     widget::{CrossAxisAlignment, Flex, Slider},
 };
 
@@ -73,7 +73,7 @@ fn params_widget() -> impl Widget<Arc<RecommendationsKnobs>> {
                         env.set(theme::BASIC_WIDGET_HEIGHT, theme::grid(1.5));
                         env.set(
                             theme::UI_FONT,
-                            FontDescriptor::new(FontFamily::SYSTEM_UI)
+                            env.get(theme::UI_FONT)
                                 .with_size(env.get(theme::TEXT_SIZE_SMALL)),
                         );
                     }),

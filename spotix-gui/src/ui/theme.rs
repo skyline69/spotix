@@ -1,5 +1,9 @@
+use std::env;
 use std::fs;
+use std::path::PathBuf;
+use std::sync::OnceLock;
 
+use druid::piet::{PietText, Text};
 use druid::{Color, Env, FontDescriptor, FontFamily, FontWeight, Insets, Key, Size};
 use log::warn;
 use serde::Deserialize;
@@ -38,6 +42,7 @@ pub const PLAYBACK_TOGGLE_FG_ACTIVE: Key<Color> = Key::new("app.playback-toggle-
 pub const UI_FONT_MEDIUM: Key<FontDescriptor> = Key::new("app.ui-font-medium");
 pub const UI_FONT_MONO: Key<FontDescriptor> = Key::new("app.ui-font-mono");
 pub const TEXT_SIZE_SMALL: Key<f64> = Key::new("app.text-size-small");
+pub const SPOTIFY_FONT_FAMILY: &str = "Spotify Mix";
 
 pub const ICON_COLOR: Key<Color> = Key::new("app.icon-color");
 pub const ICON_SIZE_TINY: Size = Size::new(12.0, 12.0);
@@ -50,6 +55,100 @@ pub const LYRIC_PAST: Key<Color> = Key::new("app.lyric-past");
 pub const LINK_HOT_COLOR: Key<Color> = Key::new("app.link-hot-color");
 pub const LINK_ACTIVE_COLOR: Key<Color> = Key::new("app.link-active-color");
 pub const LINK_COLD_COLOR: Key<Color> = Key::new("app.link-cold-color");
+
+pub fn spotify_font_family() -> FontFamily {
+    FontFamily::new_unchecked(SPOTIFY_FONT_FAMILY)
+}
+
+pub fn load_spotify_fonts(text: &mut PietText) {
+    const FONTS: &[(&str, &[u8])] = &[
+        (
+            "SpotifyMix-Regular.ttf",
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/fonts/spotify-mix/SpotifyMix-Regular.ttf"
+            )),
+        ),
+        (
+            "SpotifyMix-RegularItalic.ttf",
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/fonts/spotify-mix/SpotifyMix-RegularItalic.ttf"
+            )),
+        ),
+        (
+            "SpotifyMix-Medium.ttf",
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/fonts/spotify-mix/SpotifyMix-Medium.ttf"
+            )),
+        ),
+        (
+            "SpotifyMix-Bold.ttf",
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/assets/fonts/spotify-mix/SpotifyMix-Bold.ttf"
+            )),
+        ),
+    ];
+
+    for (name, bytes) in FONTS {
+        if let Err(err) = text.load_font(bytes) {
+            if matches!(err, druid::piet::Error::NotSupported) {
+                warn!("Font loading isn't supported on this backend.");
+                break;
+            }
+            warn!("Failed to load font '{name}': {err}");
+        }
+    }
+}
+
+pub fn configure_fontconfig() {
+    #[cfg(target_os = "linux")]
+    {
+        if env::var_os("FONTCONFIG_FILE").is_some() {
+            return;
+        }
+
+        static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
+        let config_path = CONFIG_PATH.get_or_init(|| {
+            let base = Config::cache_dir().unwrap_or_else(|| env::temp_dir().join("spotix"));
+            let dir = base.join("fontconfig");
+            if let Err(err) = fs::create_dir_all(&dir) {
+                warn!("Failed to create fontconfig dir: {err}");
+            }
+            dir.join("fonts.conf")
+        });
+
+        let font_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/fonts/spotify-mix");
+        let font_dir = escape_xml(&font_dir.to_string_lossy());
+        let config = format!(
+            r#"<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>{font_dir}</dir>
+  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>
+</fontconfig>
+"#
+        );
+
+        if let Err(err) = fs::write(config_path, config) {
+            warn!("Failed to write fontconfig file: {err}");
+            return;
+        }
+
+        unsafe {
+            env::set_var("FONTCONFIG_FILE", config_path);
+        }
+    }
+}
+
+fn escape_xml(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
 
 pub fn setup(env: &mut Env, state: &AppState) {
     let tone = match &state.config.theme {
@@ -105,13 +204,14 @@ pub fn setup(env: &mut Env, state: &AppState) {
     env.set(BUTTON_BORDER_RADIUS, 4.0);
     env.set(BUTTON_BORDER_WIDTH, 1.0);
 
+    let spotify_family = spotify_font_family();
     env.set(
         UI_FONT,
-        FontDescriptor::new(FontFamily::SYSTEM_UI).with_size(13.0),
+        FontDescriptor::new(spotify_family.clone()).with_size(13.0),
     );
     env.set(
         UI_FONT_MEDIUM,
-        FontDescriptor::new(FontFamily::SYSTEM_UI)
+        FontDescriptor::new(spotify_family)
             .with_size(13.0)
             .with_weight(FontWeight::MEDIUM),
     );
@@ -363,20 +463,26 @@ fn setup_light_theme(env: &mut Env) {
 }
 
 fn setup_dark_theme(env: &mut Env) {
-    env.set(GREY_000, Color::grey8(0xff));
-    env.set(GREY_100, Color::grey8(0xf2));
-    env.set(GREY_200, Color::grey8(0xe0));
-    env.set(GREY_300, Color::grey8(0xbd));
-    env.set(GREY_400, Color::grey8(0x82));
-    env.set(GREY_500, Color::grey8(0x4f));
-    env.set(GREY_600, Color::grey8(0x33));
-    env.set(GREY_700, Color::grey8(0x28));
-    env.set(BLUE_100, Color::rgb8(0x00, 0x8d, 0xdd));
-    env.set(BLUE_200, Color::rgb8(0x5c, 0xc4, 0xff));
+    env.set(GREY_000, Color::rgb8(0xff, 0xff, 0xff));
+    env.set(GREY_100, Color::rgb8(0xf2, 0xf2, 0xf2));
+    env.set(GREY_200, Color::rgb8(0xe5, 0xe5, 0xe5));
+    env.set(GREY_300, Color::rgb8(0xb3, 0xb3, 0xb3));
+    env.set(GREY_400, Color::rgb8(0x7a, 0x7a, 0x7a));
+    env.set(GREY_500, Color::rgb8(0x53, 0x53, 0x53));
+    env.set(GREY_600, Color::rgb8(0x28, 0x28, 0x28));
+    env.set(GREY_700, Color::rgb8(0x12, 0x12, 0x12));
+    env.set(BLUE_100, Color::rgb8(0x1d, 0xb9, 0x54));
+    env.set(BLUE_200, Color::rgb8(0x1e, 0xd7, 0x60));
 
     env.set(RED, Color::rgba8(0xEB, 0x57, 0x57, 0xFF));
 
-    env.set(LINK_HOT_COLOR, Color::rgba(1.0, 1.0, 1.0, 0.05));
-    env.set(LINK_ACTIVE_COLOR, Color::rgba(1.0, 1.0, 1.0, 0.025));
-    env.set(LINK_COLD_COLOR, Color::rgba(1.0, 1.0, 1.0, 0.0));
+    env.set(LINK_HOT_COLOR, Color::rgba8(0xff, 0xff, 0xff, 0x0d));
+    env.set(LINK_ACTIVE_COLOR, Color::rgba8(0xff, 0xff, 0xff, 0x08));
+    env.set(LINK_COLD_COLOR, Color::rgba8(0x00, 0x00, 0x00, 0x00));
+
+    env.set(LYRIC_HIGHLIGHT, Color::rgb8(0x1d, 0xb9, 0x54));
+    env.set(LYRIC_PAST, Color::rgb8(0x53, 0x53, 0x53));
+    env.set(PLAYBACK_TOGGLE_BG_ACTIVE, Color::rgb8(0x1d, 0xb9, 0x54));
+    env.set(PLAYBACK_TOGGLE_BG_INACTIVE, Color::rgb8(0x1f, 0x1f, 0x1f));
+    env.set(PLAYBACK_TOGGLE_FG_ACTIVE, Color::rgb8(0x12, 0x12, 0x12));
 }

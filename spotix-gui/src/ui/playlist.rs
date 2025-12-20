@@ -84,7 +84,7 @@ pub fn list_widget() -> impl Widget<AppState> {
             List::new(|| {
                 Label::raw()
                     .with_line_break_mode(LineBreaking::WordWrap)
-                    .with_text_size(theme::TEXT_SIZE_SMALL)
+                    .with_text_size(theme::TEXT_SIZE_NORMAL)
                     .lens(Ctx::data().then(Playlist::name))
                     .expand_width()
                     .padding(Insets::uniform_xy(theme::grid(2.0), theme::grid(0.6)))

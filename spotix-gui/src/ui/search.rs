@@ -29,7 +29,8 @@ pub const SET_TOPIC: Selector<Option<SearchTopic>> = Selector::new("app.search.s
 
 pub fn input_widget() -> impl Widget<AppState> {
     TextBox::new()
-        .with_placeholder("Search")
+        .with_placeholder("Search for Songs, Artists, ...")
+        .with_text_size(12.0)
         .controller(InputController::new().on_submit(|ctx, query, _| {
             if query.trim().is_empty() {
                 return;

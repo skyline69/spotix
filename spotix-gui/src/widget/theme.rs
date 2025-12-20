@@ -1,5 +1,9 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::{data::AppState, ui::theme};
 use druid::widget::prelude::*;
+
+static FONTS_LOADED: AtomicBool = AtomicBool::new(false);
 
 pub struct ThemeScope<W> {
     inner: W,
@@ -19,6 +23,15 @@ impl<W> ThemeScope<W> {
         theme::setup(&mut themed_env, data);
         self.cached_env.replace(themed_env);
     }
+
+    fn load_fonts_once(&mut self, ctx: &mut LifeCycleCtx) {
+        if FONTS_LOADED
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            theme::load_spotify_fonts(ctx.text());
+        }
+    }
 }
 
 impl<W: Widget<AppState>> Widget<AppState> for ThemeScope<W> {
@@ -29,6 +42,7 @@ impl<W: Widget<AppState>> Widget<AppState> for ThemeScope<W> {
 
     fn lifecycle(&mut self, ctx: &mut LifeCycleCtx, event: &LifeCycle, data: &AppState, env: &Env) {
         if let LifeCycle::WidgetAdded = &event {
+            self.load_fonts_once(ctx);
             self.set_env(data, env);
         }
         self.inner
