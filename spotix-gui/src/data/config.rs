@@ -13,6 +13,7 @@ use druid::{Data, Lens, Size};
 use platform_dirs::AppDirs;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use spotix_core::{
+    audio::equalizer::EqConfig,
     cache::{CacheHandle, mkdir_if_not_exists},
     connection::Credentials,
     player::PlaybackConfig,
@@ -174,6 +175,7 @@ pub struct Config {
     pub lastfm_api_key: Option<String>,
     pub lastfm_api_secret: Option<String>,
     pub lastfm_enable: bool,
+    pub eq: EqSettings,
 }
 
 impl Default for Config {
@@ -202,6 +204,7 @@ impl Default for Config {
             lastfm_api_key: None,
             lastfm_api_secret: None,
             lastfm_enable: false,
+            eq: EqSettings::default(),
         }
     }
 }
@@ -303,6 +306,7 @@ impl Config {
             },
             crossfade_duration: Duration::from_secs_f64(self.crossfade_duration_secs.max(0.0)),
             mono_audio: self.mono_audio,
+            eq: self.eq.to_core(),
             ..PlaybackConfig::default()
         }
     }
@@ -335,6 +339,181 @@ impl AudioQuality {
             AudioQuality::Low => 96,
             AudioQuality::Normal => 160,
             AudioQuality::High => 320,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Data, Serialize, Deserialize)]
+pub enum EqPreset {
+    Flat,
+    Acoustic,
+    BassBoost,
+    Classical,
+    Dance,
+    Electronic,
+    HipHop,
+    Jazz,
+    Pop,
+    Rock,
+    TrebleBoost,
+    Vocal,
+    SmallSpeakers,
+    SpokenWord,
+    Loudness,
+    Custom,
+}
+
+impl EqPreset {
+    pub fn label(self) -> &'static str {
+        match self {
+            EqPreset::Flat => "Flat",
+            EqPreset::Acoustic => "Acoustic",
+            EqPreset::BassBoost => "Bass Boost",
+            EqPreset::Classical => "Classical",
+            EqPreset::Dance => "Dance",
+            EqPreset::Electronic => "Electronic",
+            EqPreset::HipHop => "Hip-Hop",
+            EqPreset::Jazz => "Jazz",
+            EqPreset::Pop => "Pop",
+            EqPreset::Rock => "Rock",
+            EqPreset::TrebleBoost => "Treble Boost",
+            EqPreset::Vocal => "Vocal",
+            EqPreset::SmallSpeakers => "Small Speakers",
+            EqPreset::SpokenWord => "Spoken Word",
+            EqPreset::Loudness => "Loudness",
+            EqPreset::Custom => "Custom",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Data, Lens, Serialize, Deserialize, PartialEq)]
+pub struct EqSettings {
+    pub enabled: bool,
+    pub preset: EqPreset,
+    pub bands: EqBands,
+}
+
+impl Default for EqSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            preset: EqPreset::Flat,
+            bands: EqBands::default(),
+        }
+    }
+}
+
+impl EqSettings {
+    pub fn to_core(&self) -> EqConfig {
+        EqConfig {
+            enabled: self.enabled,
+            gains_db: self.bands.as_array(),
+        }
+    }
+
+    pub fn apply_preset(&mut self, preset: EqPreset) {
+        if preset == EqPreset::Custom {
+            return;
+        }
+        self.bands = EqBands::from_preset(preset);
+    }
+}
+
+#[derive(Clone, Debug, Data, Lens, Serialize, Deserialize, PartialEq)]
+pub struct EqBands {
+    pub band_31: f64,
+    pub band_62: f64,
+    pub band_125: f64,
+    pub band_250: f64,
+    pub band_500: f64,
+    pub band_1k: f64,
+    pub band_2k: f64,
+    pub band_4k: f64,
+    pub band_8k: f64,
+    pub band_16k: f64,
+}
+
+impl Default for EqBands {
+    fn default() -> Self {
+        Self {
+            band_31: 0.0,
+            band_62: 0.0,
+            band_125: 0.0,
+            band_250: 0.0,
+            band_500: 0.0,
+            band_1k: 0.0,
+            band_2k: 0.0,
+            band_4k: 0.0,
+            band_8k: 0.0,
+            band_16k: 0.0,
+        }
+    }
+}
+
+impl EqBands {
+    pub fn from_preset(preset: EqPreset) -> Self {
+        match preset {
+            EqPreset::Flat | EqPreset::Custom => Self::default(),
+            EqPreset::Acoustic => Self::from_db([3.0, 3.0, 2.0, 1.0, 0.0, 1.0, 2.0, 2.0, 1.0, 0.0]),
+            EqPreset::BassBoost => {
+                Self::from_db([6.0, 5.0, 4.0, 3.0, 1.5, 0.0, -1.0, -1.5, -2.0, -2.0])
+            }
+            EqPreset::Classical => {
+                Self::from_db([3.0, 2.0, 1.0, 0.0, -1.0, 0.0, 2.0, 3.0, 4.0, 5.0])
+            }
+            EqPreset::Dance => Self::from_db([5.0, 4.0, 2.0, 0.0, -1.0, -1.0, 0.0, 1.0, 2.0, 3.0]),
+            EqPreset::Electronic => {
+                Self::from_db([4.0, 3.0, 0.0, -2.0, -2.0, 0.0, 2.0, 3.0, 4.0, 4.0])
+            }
+            EqPreset::HipHop => Self::from_db([5.0, 4.0, 3.0, 1.0, -1.0, -1.0, 0.0, 1.0, 2.0, 3.0]),
+            EqPreset::Jazz => Self::from_db([4.0, 3.0, 1.0, 0.0, -2.0, -2.0, 0.0, 1.0, 3.0, 4.0]),
+            EqPreset::Pop => Self::from_db([-1.0, 2.0, 4.0, 5.0, 3.0, 0.0, -1.0, -1.0, -1.0, -2.0]),
+            EqPreset::Rock => Self::from_db([4.0, 3.0, 1.0, 0.0, -1.0, 1.5, 3.0, 3.5, 3.5, 4.0]),
+            EqPreset::TrebleBoost => {
+                Self::from_db([-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 6.0])
+            }
+            EqPreset::Vocal => {
+                Self::from_db([-2.0, -2.0, -1.0, 0.0, 3.0, 4.0, 3.0, 2.0, 0.0, -1.0])
+            }
+            EqPreset::SmallSpeakers => {
+                Self::from_db([-4.0, -3.0, 0.0, 3.0, 5.0, 4.0, 2.0, 0.0, -1.5, -3.0])
+            }
+            EqPreset::SpokenWord => {
+                Self::from_db([-4.0, -2.0, 0.0, 2.0, 4.0, 4.0, 2.0, 0.0, -2.0, -4.0])
+            }
+            EqPreset::Loudness => {
+                Self::from_db([5.0, 4.0, 2.0, 0.0, -2.0, -2.0, 0.0, 2.0, 4.0, 5.0])
+            }
+        }
+    }
+
+    pub fn as_array(&self) -> [f32; 10] {
+        [
+            self.band_31 as f32,
+            self.band_62 as f32,
+            self.band_125 as f32,
+            self.band_250 as f32,
+            self.band_500 as f32,
+            self.band_1k as f32,
+            self.band_2k as f32,
+            self.band_4k as f32,
+            self.band_8k as f32,
+            self.band_16k as f32,
+        ]
+    }
+
+    fn from_db(values: [f64; 10]) -> Self {
+        Self {
+            band_31: values[0],
+            band_62: values[1],
+            band_125: values[2],
+            band_250: values[3],
+            band_500: values[4],
+            band_1k: values[5],
+            band_2k: values[6],
+            band_4k: values[7],
+            band_8k: values[8],
+            band_16k: values[9],
         }
     }
 }

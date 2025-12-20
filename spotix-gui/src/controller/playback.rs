@@ -9,7 +9,7 @@ use std::{
 
 use crossbeam_channel::Sender;
 use druid::{
-    Code, ExtEventSink, InternalLifeCycle, KbKey, MouseButton, Target, WindowHandle,
+    Code, ExtEventSink, InternalLifeCycle, KbKey, MouseButton, Target, TimerToken, WindowHandle,
     im::Vector,
     widget::{Controller, prelude::*},
 };
@@ -52,6 +52,7 @@ pub struct PlaybackController {
     autoplay_in_flight: bool,
     autoplay_seed: Option<TrackId>,
     user_stop_requested: bool,
+    eq_restart_timer: Option<TimerToken>,
 }
 
 struct PendingRestore {
@@ -102,6 +103,7 @@ impl PlaybackController {
             autoplay_in_flight: false,
             autoplay_seed: None,
             user_stop_requested: false,
+            eq_restart_timer: None,
         }
     }
 
@@ -915,6 +917,14 @@ where
         data: &mut AppState,
         env: &Env,
     ) {
+        if let Event::Timer(token) = event
+            && self.eq_restart_timer == Some(*token)
+        {
+            self.eq_restart_timer = None;
+            self.restart_playback_with_config(data);
+            ctx.set_handled();
+        }
+
         if let Event::MouseUp(mouse) = event
             && mouse.button == MouseButton::Left
             && data.queue_drag.source_index.is_some()
@@ -1447,7 +1457,8 @@ where
         let playback_config_changed = old_data.config.audio_quality != data.config.audio_quality
             || old_data.config.audio_cache_limit_mb != data.config.audio_cache_limit_mb
             || old_data.config.crossfade_duration_secs != data.config.crossfade_duration_secs
-            || old_data.config.mono_audio != data.config.mono_audio;
+            || old_data.config.mono_audio != data.config.mono_audio
+            || old_data.config.eq != data.config.eq;
 
         if playback_config_changed {
             self.send(PlayerEvent::Command(PlayerCommand::Configure {
@@ -1457,8 +1468,12 @@ where
 
         let playback_restart_needed = old_data.config.mono_audio != data.config.mono_audio
             || old_data.config.normalization_enabled != data.config.normalization_enabled;
+        let eq_changed = old_data.config.eq != data.config.eq;
         if playback_restart_needed {
+            self.eq_restart_timer = None;
             self.restart_playback_with_config(data);
+        } else if eq_changed && data.playback.now_playing.is_some() {
+            self.eq_restart_timer = Some(ctx.request_timer(Duration::from_millis(300)));
         }
 
         child.update(ctx, old_data, data, env);

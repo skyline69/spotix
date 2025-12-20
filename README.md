@@ -18,6 +18,7 @@ It focuses on low overhead, a clean UI, and a lightweight runtime (no Electron).
 - More fluid seek bar, bottom-bar cover click opens album, and platform release binaries
 - More up-to-date dependencies and ongoing maintenance on the fork
 - Automatic retry for transient network timeouts and throttling
+- Built-in 10-band equalizer with presets and custom tuning
 
 ## Status
 - Early development; expect missing features and rough edges

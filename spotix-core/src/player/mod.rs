@@ -9,7 +9,10 @@ use std::{mem, thread, thread::JoinHandle, time::Duration};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::{
-    audio::output::{AudioOutput, AudioSink, DefaultAudioOutput, DefaultAudioSink},
+    audio::{
+        equalizer::EqConfig,
+        output::{AudioOutput, AudioSink, DefaultAudioOutput, DefaultAudioSink},
+    },
     cache::CacheHandle,
     cdn::CdnHandle,
     error::Error,
@@ -33,6 +36,7 @@ pub struct PlaybackConfig {
     pub audio_cache_limit: Option<u64>,
     pub crossfade_duration: Duration,
     pub mono_audio: bool,
+    pub eq: EqConfig,
 }
 
 impl Default for PlaybackConfig {
@@ -43,6 +47,7 @@ impl Default for PlaybackConfig {
             audio_cache_limit: None,
             crossfade_duration: Duration::from_secs(0),
             mono_audio: false,
+            eq: EqConfig::default(),
         }
     }
 }
@@ -319,7 +324,8 @@ impl Player {
         log::info!("starting playback");
         let path = loaded_item.file.path();
         let position = Duration::default();
-        self.playback_mgr.play(loaded_item, self.config.mono_audio);
+        self.playback_mgr
+            .play(loaded_item, self.config.mono_audio, self.config.eq.clone());
         self.state = PlayerState::Playing { path, position };
         self.sender
             .send(PlayerEvent::Playing { path, position })
@@ -434,6 +440,7 @@ impl Player {
             loaded_item,
             self.config.crossfade_duration,
             self.config.mono_audio,
+            self.config.eq.clone(),
         ) {
             self.preload(next_item);
             return;

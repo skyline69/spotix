@@ -7,8 +7,8 @@ use std::time::Duration;
 use crate::{
     cmd,
     data::{
-        AppState, AudioQuality, Authentication, CacheUsage, Config, Preferences, PreferencesTab,
-        Promise, SliderScrollScale, Theme,
+        AppState, AudioQuality, Authentication, CacheUsage, Config, EqBands, EqPreset, EqSettings,
+        Preferences, PreferencesTab, Promise, SliderScrollScale, Theme,
     },
     widget::{Async, Border, Checkbox, MyWidgetExt, icons},
 };
@@ -309,6 +309,27 @@ fn playback_tab_widget() -> impl Widget<AppState> {
     col = col.with_spacer(theme::grid(3.0));
 
     col = col
+        .with_child(Label::new("Equalizer").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(2.0))
+        .with_child(
+            Checkbox::new("Enable equalizer")
+                .lens(AppState::config.then(Config::eq).then(EqSettings::enabled)),
+        )
+        .with_spacer(theme::grid(1.5))
+        .with_child(ViewSwitcher::new(
+            |data: &AppState, _| data.config.eq.enabled,
+            |enabled, _, _| {
+                if *enabled {
+                    eq_controls_widget().boxed()
+                } else {
+                    SizedBox::empty().boxed()
+                }
+            },
+        ));
+
+    col = col.with_spacer(theme::grid(3.0));
+
+    col = col
         .with_child(Label::new("Crossfade").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(2.0))
         .with_child(
@@ -340,6 +361,168 @@ fn playback_tab_widget() -> impl Widget<AppState> {
         );
 
     col
+}
+
+fn eq_controls_widget() -> impl Widget<AppState> {
+    let preset = RadioGroup::column(eq_preset_options())
+        .lens(AppState::config.then(Config::eq).then(EqPresetLens));
+
+    let bands = Flex::column()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .with_child(eq_band_row("31 Hz", EqBand::Hz31))
+        .with_child(eq_band_row("62 Hz", EqBand::Hz62))
+        .with_child(eq_band_row("125 Hz", EqBand::Hz125))
+        .with_child(eq_band_row("250 Hz", EqBand::Hz250))
+        .with_child(eq_band_row("500 Hz", EqBand::Hz500))
+        .with_child(eq_band_row("1 kHz", EqBand::Hz1k))
+        .with_child(eq_band_row("2 kHz", EqBand::Hz2k))
+        .with_child(eq_band_row("4 kHz", EqBand::Hz4k))
+        .with_child(eq_band_row("8 kHz", EqBand::Hz8k))
+        .with_child(eq_band_row("16 kHz", EqBand::Hz16k));
+
+    Flex::column()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .with_child(Label::new("Preset").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(1.0))
+        .with_child(preset)
+        .with_spacer(theme::grid(1.5))
+        .with_child(Label::new("Bands (dB)").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(1.0))
+        .with_child(bands)
+}
+
+fn eq_band_row(label: &'static str, band: EqBand) -> impl Widget<AppState> {
+    let lens = AppState::config
+        .then(Config::eq)
+        .then(EqBandLens::new(band));
+    Flex::row()
+        .cross_axis_alignment(CrossAxisAlignment::Center)
+        .with_child(SizedBox::new(Label::new(label)).width(theme::grid(6.0)))
+        .with_spacer(theme::grid(0.5))
+        .with_flex_child(Slider::new().with_range(-12.0, 12.0).lens(lens), 1.0)
+        .with_spacer(theme::grid(0.5))
+        .with_child(
+            SizedBox::new(Label::dynamic(move |state: &AppState, _| {
+                let value = band.get(&state.config.eq.bands);
+                format!("{value:+.1} dB")
+            }))
+            .width(theme::grid(6.0)),
+        )
+        .padding((0.0, theme::grid(0.4)))
+}
+
+fn eq_preset_options() -> Vec<(String, EqPreset)> {
+    vec![
+        EqPreset::Flat,
+        EqPreset::Acoustic,
+        EqPreset::BassBoost,
+        EqPreset::Classical,
+        EqPreset::Dance,
+        EqPreset::Electronic,
+        EqPreset::HipHop,
+        EqPreset::Jazz,
+        EqPreset::Pop,
+        EqPreset::Rock,
+        EqPreset::TrebleBoost,
+        EqPreset::Vocal,
+        EqPreset::SmallSpeakers,
+        EqPreset::SpokenWord,
+        EqPreset::Loudness,
+        EqPreset::Custom,
+    ]
+    .into_iter()
+    .map(|preset| (preset.label().to_string(), preset))
+    .collect()
+}
+
+#[derive(Copy, Clone)]
+enum EqBand {
+    Hz31,
+    Hz62,
+    Hz125,
+    Hz250,
+    Hz500,
+    Hz1k,
+    Hz2k,
+    Hz4k,
+    Hz8k,
+    Hz16k,
+}
+
+impl EqBand {
+    fn get(self, bands: &EqBands) -> f64 {
+        match self {
+            EqBand::Hz31 => bands.band_31,
+            EqBand::Hz62 => bands.band_62,
+            EqBand::Hz125 => bands.band_125,
+            EqBand::Hz250 => bands.band_250,
+            EqBand::Hz500 => bands.band_500,
+            EqBand::Hz1k => bands.band_1k,
+            EqBand::Hz2k => bands.band_2k,
+            EqBand::Hz4k => bands.band_4k,
+            EqBand::Hz8k => bands.band_8k,
+            EqBand::Hz16k => bands.band_16k,
+        }
+    }
+
+    fn get_mut(self, bands: &mut EqBands) -> &mut f64 {
+        match self {
+            EqBand::Hz31 => &mut bands.band_31,
+            EqBand::Hz62 => &mut bands.band_62,
+            EqBand::Hz125 => &mut bands.band_125,
+            EqBand::Hz250 => &mut bands.band_250,
+            EqBand::Hz500 => &mut bands.band_500,
+            EqBand::Hz1k => &mut bands.band_1k,
+            EqBand::Hz2k => &mut bands.band_2k,
+            EqBand::Hz4k => &mut bands.band_4k,
+            EqBand::Hz8k => &mut bands.band_8k,
+            EqBand::Hz16k => &mut bands.band_16k,
+        }
+    }
+}
+
+struct EqBandLens {
+    band: EqBand,
+}
+
+impl EqBandLens {
+    fn new(band: EqBand) -> Self {
+        Self { band }
+    }
+}
+
+impl Lens<EqSettings, f64> for EqBandLens {
+    fn with<V, F: FnOnce(&f64) -> V>(&self, data: &EqSettings, f: F) -> V {
+        let value = self.band.get(&data.bands);
+        f(&value)
+    }
+
+    fn with_mut<V, F: FnOnce(&mut f64) -> V>(&self, data: &mut EqSettings, f: F) -> V {
+        let slot = self.band.get_mut(&mut data.bands);
+        let before = *slot;
+        let out = f(slot);
+        if (*slot - before).abs() > 1e-6 && data.preset != EqPreset::Custom {
+            data.preset = EqPreset::Custom;
+        }
+        out
+    }
+}
+
+struct EqPresetLens;
+
+impl Lens<EqSettings, EqPreset> for EqPresetLens {
+    fn with<V, F: FnOnce(&EqPreset) -> V>(&self, data: &EqSettings, f: F) -> V {
+        f(&data.preset)
+    }
+
+    fn with_mut<V, F: FnOnce(&mut EqPreset) -> V>(&self, data: &mut EqSettings, f: F) -> V {
+        let before = data.preset;
+        let out = f(&mut data.preset);
+        if data.preset != before {
+            data.apply_preset(data.preset);
+        }
+        out
+    }
 }
 
 fn theme_options() -> Vec<(String, Theme)> {

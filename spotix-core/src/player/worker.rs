@@ -18,6 +18,7 @@ use crate::{
     actor::{Act, Actor, ActorHandle},
     audio::{
         decode::AudioDecoder,
+        equalizer::{EqConfig, EqualizerSource},
         output::{AudioSink, DefaultAudioSink},
         resample::ResamplingQuality,
         source::{
@@ -50,8 +51,8 @@ impl PlaybackManager {
         }
     }
 
-    pub fn play(&mut self, loaded: LoadedPlaybackItem, mono_audio: bool) {
-        let output = self.build_output_source(loaded, mono_audio);
+    pub fn play(&mut self, loaded: LoadedPlaybackItem, mono_audio: bool, eq: EqConfig) {
+        let output = self.build_output_source(loaded, mono_audio, eq);
         self.current = Some((output.path, output.seek_sender));
         let (source, sender) = CrossfadeSource::new(output.source);
         self.crossfade_send = Some(sender);
@@ -64,12 +65,13 @@ impl PlaybackManager {
         loaded: LoadedPlaybackItem,
         duration: Duration,
         mono_audio: bool,
+        eq: EqConfig,
     ) -> bool {
         let sender = match &self.crossfade_send {
             Some(sender) => sender.clone(),
             None => return false,
         };
-        let output = self.build_output_source(loaded, mono_audio);
+        let output = self.build_output_source(loaded, mono_audio, eq);
         self.current = Some((output.path, output.seek_sender));
         let frames = (duration.as_secs_f64() * self.sink.sample_rate() as f64) as u64;
         let msg = if frames == 0 {
@@ -101,7 +103,12 @@ impl PlaybackManager {
         }
     }
 
-    fn build_output_source(&self, loaded: LoadedPlaybackItem, mono_audio: bool) -> OutputSource {
+    fn build_output_source(
+        &self,
+        loaded: LoadedPlaybackItem,
+        mono_audio: bool,
+        eq: EqConfig,
+    ) -> OutputSource {
         let path = loaded.file.path();
         let source = DecoderSource::new(
             loaded.file,
@@ -129,6 +136,10 @@ impl PlaybackManager {
             } else {
                 source = Box::new(StereoMappedSource::new(source, self.sink.channel_count()));
             }
+        }
+
+        if eq.is_active() {
+            source = Box::new(EqualizerSource::new(source, eq));
         }
 
         OutputSource {
