@@ -1,6 +1,8 @@
 use std::env;
 use std::fs;
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
+#[cfg(target_os = "linux")]
 use std::sync::OnceLock;
 
 use druid::piet::{PietText, Text};
@@ -171,6 +173,7 @@ pub fn ensure_preset_themes() {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn escape_xml(input: &str) -> String {
     input
         .replace('&', "&amp;")
