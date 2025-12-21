@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
 use druid::{
-    Env, Lens, LensExt, LocalizedString, Menu, MenuItem, Size, TextAlignment, Widget, WidgetExt,
+    Affine, Env, Lens, LensExt, LocalizedString, Menu, MenuItem, RenderContext, Size,
+    TextAlignment, Widget, WidgetExt,
     im::Vector,
-    widget::{CrossAxisAlignment, Either, Flex, Label, LineBreaking, ViewSwitcher},
+    kurbo::BezPath,
+    piet::{LineCap, LineJoin, StrokeStyle},
+    widget::{CrossAxisAlignment, Either, Flex, Label, LineBreaking, Painter, ViewSwitcher},
 };
 use spotix_core::{
     audio::normalize::NormalizationLevel,
@@ -74,6 +77,15 @@ pub fn playable_widget(track: Arc<Track>, display: Display) -> impl Widget<PlayR
     }
 
     if display.cover {
+        let selection_checkbox = selection_checkbox_widget()
+            .padding_right(theme::grid(1.0))
+            .boxed();
+        main_row.add_child(Either::new(
+            |row, _| row.selection_enabled,
+            selection_checkbox,
+            Empty.boxed(),
+        ));
+
         let album_cover = rounded_cover_widget(theme::grid(4.0))
             .padding_right(theme::grid(1.0))
             .lens(PlayRow::item);
@@ -216,6 +228,55 @@ fn rounded_cover_widget(size: f64) -> impl Widget<Arc<Track>> {
     cover_widget(size).clip(Size::new(size, size).to_rounded_rect(4.0))
 }
 
+fn selection_checkbox_widget() -> impl Widget<PlayRow<Arc<Track>>> {
+    const BORDER_WIDTH: f64 = 1.0;
+    Painter::new(|ctx, row: &PlayRow<Arc<Track>>, env| {
+        let size = ctx.size();
+        let rect = size
+            .to_rect()
+            .inset(-BORDER_WIDTH / 2.0)
+            .to_rounded_rect(3.0);
+
+        let (fill, stroke, check) = if row.selected {
+            (
+                env.get(theme::BLUE_200),
+                env.get(theme::BLUE_100),
+                Some(env.get(theme::GREY_700)),
+            )
+        } else {
+            (
+                env.get(theme::BACKGROUND_DARK),
+                env.get(theme::GREY_500),
+                None,
+            )
+        };
+
+        ctx.fill(rect, &fill);
+        ctx.stroke(rect, &stroke, BORDER_WIDTH);
+
+        if let Some(check_color) = check {
+            let mut path = BezPath::new();
+            path.move_to((4.0, 9.0));
+            path.line_to((8.0, 13.0));
+            path.line_to((14.0, 5.0));
+
+            let style = StrokeStyle::new()
+                .line_cap(LineCap::Round)
+                .line_join(LineJoin::Round);
+
+            ctx.with_save(|ctx| {
+                ctx.transform(Affine::scale(size.width / 18.0));
+                ctx.stroke_styled(path, &check_color, 2.0, &style);
+            });
+        }
+    })
+    .fix_size(theme::grid(2.0), theme::grid(2.0))
+    .on_left_click(|ctx, _mouse, row, _env| {
+        ctx.submit_command(playlist::TOGGLE_TRACK_SELECTION.with(row.item.track_pos));
+        ctx.set_handled();
+    })
+}
+
 fn popularity_stars(popularity: u32) -> String {
     const COUNT: usize = 5;
 
@@ -349,6 +410,7 @@ pub fn track_menu(
                 )
                 .command(playlist::REMOVE_TRACK.with(PlaylistRemoveTrack {
                     link: playlist.to_owned(),
+                    track_id: track.id,
                     track_pos,
                 })),
             );

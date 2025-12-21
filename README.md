@@ -19,6 +19,7 @@ It focuses on low overhead, a clean UI, and a lightweight runtime (no Electron).
 - More up-to-date dependencies and ongoing maintenance on the fork
 - Automatic retry for transient network timeouts and throttling
 - Built-in 10-band equalizer with presets and custom tuning
+- Multi-select playlist mode with select all and bulk remove actions
 
 ## Status
 - Early development; expect missing features and rough edges

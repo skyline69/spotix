@@ -13,7 +13,8 @@ use crate::{
     cmd,
     data::{
         AppState, Ctx, Library, Nav, Playlist, PlaylistAddTrack, PlaylistDetail, PlaylistLink,
-        PlaylistRemoveTrack, PlaylistTracks, Promise, Track, WithCtx,
+        PlaylistRemoveTrack, PlaylistRemoveTrackItem, PlaylistRemoveTracks, PlaylistTracks,
+        Promise, Track, TrackId, WithCtx,
         config::{SortCriteria, SortOrder},
     },
     error::Error,
@@ -62,6 +63,12 @@ struct PlaylistTracksPage {
 }
 pub const ADD_TRACK: Selector<PlaylistAddTrack> = Selector::new("app.playlist.add-track");
 pub const REMOVE_TRACK: Selector<PlaylistRemoveTrack> = Selector::new("app.playlist.remove-track");
+const SET_SELECTION_MODE: Selector<bool> = Selector::new("app.playlist.set-selection-mode");
+pub const TOGGLE_TRACK_SELECTION: Selector<usize> = Selector::new("app.playlist.toggle-selection");
+const SELECT_ALL_TRACKS: Selector = Selector::new("app.playlist.select-all");
+const UNSELECT_ALL_TRACKS: Selector = Selector::new("app.playlist.unselect-all");
+const REMOVE_SELECTED_TRACKS: Selector<PlaylistRemoveTracks> =
+    Selector::new("app.playlist.remove-selected");
 
 pub const FOLLOW_PLAYLIST: Selector<Playlist> = Selector::new("app.playlist.follow");
 pub const UNFOLLOW_PLAYLIST: Selector<PlaylistLink> = Selector::new("app.playlist.unfollow");
@@ -180,7 +187,7 @@ pub fn list_widget() -> impl Widget<AppState> {
     })
     .on_command_async(
         REMOVE_TRACK,
-        |d| WebApi::global().remove_track_from_playlist(&d.link.id, d.track_pos),
+        |d| WebApi::global().remove_track_from_playlist(&d.link.id, d.track_id, d.track_pos),
         |_, data, d| {
             data.with_library_mut(|library| library.decrement_playlist_track_count(&d.link))
         },
@@ -441,14 +448,225 @@ pub fn detail_widget() -> impl Widget<AppState> {
 
     let playlist_top = async_playlist_info_widget().padding(theme::grid(1.0));
 
+    let selection_controls = selection_controls_widget();
+
     let playlist_tracks = async_tracks_widget();
 
     Flex::column()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .with_spacer(theme::grid(1.0))
         .with_child(playlist_top)
-        .with_spacer(theme::grid(1.0))
+        .with_child(selection_controls)
+        .with_spacer(theme::grid(0.5))
         .with_child(playlist_tracks)
+        .on_command(SET_SELECTION_MODE, |_, enabled, data: &mut AppState| {
+            update_tracks_selection(data, |tracks| {
+                tracks.selection_mode = *enabled;
+                if !enabled {
+                    tracks.selected_positions.clear();
+                }
+            });
+        })
+        .on_command(
+            TOGGLE_TRACK_SELECTION,
+            |_, track_pos, data: &mut AppState| {
+                update_tracks_selection(data, |tracks| {
+                    if !tracks.selection_mode {
+                        return;
+                    }
+                    if tracks.selected_positions.contains(track_pos) {
+                        tracks.selected_positions.remove(track_pos);
+                    } else {
+                        tracks.selected_positions.insert(*track_pos);
+                    }
+                });
+            },
+        )
+        .on_command(SELECT_ALL_TRACKS, |_, _, data: &mut AppState| {
+            update_tracks_selection(data, |tracks| {
+                if !tracks.selection_mode {
+                    return;
+                }
+                tracks.selected_positions =
+                    tracks.tracks.iter().map(|track| track.track_pos).collect();
+            });
+        })
+        .on_command(UNSELECT_ALL_TRACKS, |_, _, data: &mut AppState| {
+            update_tracks_selection(data, |tracks| {
+                if !tracks.selection_mode {
+                    return;
+                }
+                tracks.selected_positions.clear();
+            });
+        })
+        .on_command_async(
+            REMOVE_SELECTED_TRACKS,
+            |d| {
+                let items: Vec<(TrackId, usize)> = d
+                    .items
+                    .iter()
+                    .map(|item| (item.track_id, item.track_pos))
+                    .collect();
+                WebApi::global().remove_tracks_from_playlist(&d.link.id, &items)
+            },
+            |_, data, d| {
+                let remove_count = d.items.len();
+                data.with_library_mut(|library| {
+                    for _ in 0..remove_count {
+                        library.decrement_playlist_track_count(&d.link);
+                    }
+                });
+            },
+            |e, data, (p, r)| {
+                if let Err(err) = r {
+                    data.error_alert(err);
+                } else {
+                    data.info_alert("Removed from playlist.");
+                    update_tracks_selection(data, |tracks| {
+                        tracks.selection_mode = false;
+                        tracks.selected_positions.clear();
+                    });
+                }
+                e.submit_command(LOAD_DETAIL.with((
+                    p.link,
+                    data.config.sort_criteria,
+                    data.config.sort_order,
+                    data.config.enable_pagination,
+                )))
+            },
+        )
+}
+
+fn selection_controls_widget() -> impl Widget<AppState> {
+    ViewSwitcher::new(
+        |data: &AppState, _| selection_state(data),
+        |state, _data, _| match state {
+            (false, _, _) => Empty.boxed(),
+            (true, false, _) => Flex::row()
+                .with_child(
+                    Button::new("Select")
+                        .on_left_click(|ctx, _mouse, _data, _env| {
+                            ctx.submit_command(SET_SELECTION_MODE.with(true));
+                        })
+                        .fix_height(theme::grid(3.0)),
+                )
+                .padding(Insets::uniform_xy(theme::grid(1.0), theme::grid(0.5)))
+                .boxed(),
+            (true, true, _) => {
+                let select_all = Button::dynamic(|data: &AppState, _| {
+                    if all_tracks_selected(data) {
+                        "Unselect all".to_string()
+                    } else {
+                        "Select all".to_string()
+                    }
+                })
+                .on_left_click(|ctx, _mouse, data, _env| {
+                    if all_tracks_selected(data) {
+                        ctx.submit_command(UNSELECT_ALL_TRACKS);
+                    } else {
+                        ctx.submit_command(SELECT_ALL_TRACKS);
+                    }
+                })
+                .fix_height(theme::grid(3.0));
+                let remove = Button::new("Remove from playlist")
+                    .on_left_click(|ctx, _mouse, data: &mut AppState, _env| {
+                        if let Some(request) = build_remove_request(data) {
+                            ctx.submit_command(REMOVE_SELECTED_TRACKS.with(request));
+                        }
+                    })
+                    .disabled_if(|data, _| selected_count(data) == 0)
+                    .fix_height(theme::grid(3.0));
+                let done = Button::new("Done")
+                    .on_left_click(|ctx, _mouse, _data, _env| {
+                        ctx.submit_command(SET_SELECTION_MODE.with(false));
+                    })
+                    .fix_height(theme::grid(3.0));
+
+                Flex::row()
+                    .with_child(select_all)
+                    .with_spacer(theme::grid(1.0))
+                    .with_child(remove)
+                    .with_spacer(theme::grid(1.0))
+                    .with_child(done)
+                    .padding(Insets::uniform_xy(theme::grid(1.0), theme::grid(0.5)))
+                    .boxed()
+            }
+        },
+    )
+}
+
+fn selection_state(data: &AppState) -> (bool, bool, usize) {
+    let editable = playlist_is_editable(data);
+    let selection_mode = playlist_selection_enabled(data);
+    let selected = selected_count(data);
+    (editable, selection_mode, selected)
+}
+
+fn playlist_is_editable(data: &AppState) -> bool {
+    let playlist = match &data.playlist_detail.playlist {
+        Promise::Resolved { val, .. } => val,
+        _ => return false,
+    };
+
+    data.library.contains_playlist(playlist)
+        && (playlist.collaborative || data.library.is_created_by_user(playlist))
+}
+
+fn playlist_selection_enabled(data: &AppState) -> bool {
+    match &data.playlist_detail.tracks {
+        Promise::Resolved { val, .. } => val.selection_mode,
+        _ => false,
+    }
+}
+
+fn selected_count(data: &AppState) -> usize {
+    match &data.playlist_detail.tracks {
+        Promise::Resolved { val, .. } => val.selected_positions.len(),
+        _ => 0,
+    }
+}
+
+fn all_tracks_selected(data: &AppState) -> bool {
+    match &data.playlist_detail.tracks {
+        Promise::Resolved { val, .. } => {
+            !val.tracks.is_empty() && val.selected_positions.len() == val.tracks.len()
+        }
+        _ => false,
+    }
+}
+
+fn build_remove_request(data: &AppState) -> Option<PlaylistRemoveTracks> {
+    let tracks = match &data.playlist_detail.tracks {
+        Promise::Resolved { val, .. } => val,
+        _ => return None,
+    };
+
+    if tracks.selected_positions.is_empty() {
+        return None;
+    }
+
+    let mut items = Vec::new();
+    for track in tracks.tracks.iter() {
+        if tracks.selected_positions.contains(&track.track_pos) {
+            items.push(PlaylistRemoveTrackItem {
+                track_id: track.id,
+                track_pos: track.track_pos,
+            });
+        }
+    }
+
+    items.sort_by_key(|item| item.track_pos);
+
+    Some(PlaylistRemoveTracks {
+        link: tracks.link(),
+        items: items.into_iter().collect(),
+    })
+}
+
+fn update_tracks_selection(data: &mut AppState, update: impl FnOnce(&mut PlaylistTracks)) {
+    if let Promise::Resolved { val, .. } = &mut data.playlist_detail.tracks {
+        update(val);
+    }
 }
 
 fn async_playlist_info_widget() -> impl Widget<AppState> {

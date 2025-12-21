@@ -80,7 +80,9 @@ impl WebApiCache {
         if let Some(path) = self.key(bucket, key)
             && let Err(err) = fs::remove_file(path)
         {
-            log::error!("failed to remove WebAPI cache entry: {err:?}");
+            if err.kind() != std::io::ErrorKind::NotFound {
+                log::error!("failed to remove WebAPI cache entry: {err:?}");
+            }
         }
     }
 
@@ -88,7 +90,9 @@ impl WebApiCache {
         if let Some(path) = self.bucket(bucket)
             && let Err(err) = fs::remove_dir_all(path)
         {
-            log::error!("failed to clear WebAPI cache bucket: {err:?}");
+            if err.kind() != std::io::ErrorKind::NotFound {
+                log::error!("failed to clear WebAPI cache bucket: {err:?}");
+            }
         }
     }
 

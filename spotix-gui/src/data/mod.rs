@@ -50,7 +50,7 @@ pub use crate::data::{
     },
     playlist::{
         Playlist, PlaylistAddTrack, PlaylistDetail, PlaylistLink, PlaylistRemoveTrack,
-        PlaylistTracks,
+        PlaylistRemoveTrackItem, PlaylistRemoveTracks, PlaylistTracks,
     },
     promise::{Promise, PromiseState},
     recommend::{

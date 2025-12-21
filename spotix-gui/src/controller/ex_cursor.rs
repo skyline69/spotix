@@ -20,7 +20,11 @@ impl<T: Data> ExCursor<T> {
 impl<T: Data, W: Widget<T>> Controller<T, W> for ExCursor<T> {
     fn event(&mut self, child: &mut W, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
         if let Event::MouseMove(_) = event {
-            ctx.set_cursor(&self.cursor);
+            if ctx.is_disabled() {
+                ctx.clear_cursor();
+            } else {
+                ctx.set_cursor(&self.cursor);
+            }
         }
 
         child.event(ctx, event, data, env);

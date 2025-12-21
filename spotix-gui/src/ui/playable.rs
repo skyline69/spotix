@@ -102,6 +102,8 @@ pub struct PlayRow<T> {
     pub origin: Arc<PlaybackOrigin>,
     pub position: usize,
     pub is_playing: bool,
+    pub selection_enabled: bool,
+    pub selected: bool,
 }
 
 impl<T> PlayRow<T> {
@@ -112,6 +114,8 @@ impl<T> PlayRow<T> {
             origin: self.origin.clone(),
             position: self.position,
             is_playing: self.is_playing,
+            selection_enabled: self.selection_enabled,
+            selected: self.selected,
         }
     }
 }
@@ -137,6 +141,12 @@ pub trait PlayableIter {
     fn origin(&self) -> PlaybackOrigin;
     fn count(&self) -> usize;
     fn for_each(&self, cb: impl FnMut(Playable, usize));
+    fn selection_enabled(&self) -> bool {
+        false
+    }
+    fn is_selected(&self, _item: &Playable) -> bool {
+        false
+    }
 }
 
 // This should change to a more specific name as it could be confusing for others
@@ -170,6 +180,17 @@ impl PlayableIter for PlaylistTracks {
 
     fn count(&self) -> usize {
         self.tracks.len()
+    }
+
+    fn selection_enabled(&self) -> bool {
+        self.selection_mode
+    }
+
+    fn is_selected(&self, item: &Playable) -> bool {
+        match item {
+            Playable::Track(track) => self.selected_positions.contains(&track.track_pos),
+            _ => false,
+        }
     }
 }
 
@@ -267,6 +288,7 @@ where
             {
                 return;
             }
+            let selected = self.data.is_selected(&item);
             cb(
                 &PlayRow {
                     is_playing: self.ctx.is_playing(&item),
@@ -274,6 +296,8 @@ where
                     origin: origin.clone(),
                     item,
                     position,
+                    selection_enabled: self.data.selection_enabled(),
+                    selected,
                 },
                 position,
             );
@@ -291,6 +315,7 @@ where
             {
                 return;
             }
+            let selected = self.data.is_selected(&item);
             cb(
                 &mut PlayRow {
                     is_playing: self.ctx.is_playing(&item),
@@ -298,6 +323,8 @@ where
                     origin: origin.clone(),
                     item,
                     position,
+                    selection_enabled: self.data.selection_enabled(),
+                    selected,
                 },
                 position,
             );

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use druid::{Data, Lens, im::Vector};
+use druid::{
+    Data, Lens,
+    im::{HashSet, Vector},
+};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::data::utils::{Page, sanitize_html_string};
@@ -25,7 +28,20 @@ pub struct PlaylistAddTrack {
 #[derive(Clone, Debug, Data, Lens, Deserialize)]
 pub struct PlaylistRemoveTrack {
     pub link: PlaylistLink,
+    pub track_id: TrackId,
     pub track_pos: usize,
+}
+
+#[derive(Clone, Debug, Data, Lens, Deserialize)]
+pub struct PlaylistRemoveTrackItem {
+    pub track_id: TrackId,
+    pub track_pos: usize,
+}
+
+#[derive(Clone, Debug, Data, Lens, Deserialize)]
+pub struct PlaylistRemoveTracks {
+    pub link: PlaylistLink,
+    pub items: Vector<PlaylistRemoveTrackItem>,
 }
 
 #[derive(Clone, Debug, Data, Lens, Deserialize)]
@@ -72,6 +88,8 @@ pub struct PlaylistTracks {
     pub total: usize,
     pub next_offset: usize,
     pub loading_more: bool,
+    pub selection_mode: bool,
+    pub selected_positions: HashSet<usize>,
 }
 
 impl PlaylistTracks {
@@ -91,6 +109,8 @@ impl PlaylistTracks {
             total: page.total,
             next_offset,
             loading_more: false,
+            selection_mode: false,
+            selected_positions: HashSet::new(),
         }
     }
 
@@ -103,6 +123,8 @@ impl PlaylistTracks {
             total,
             tracks,
             loading_more: false,
+            selection_mode: false,
+            selected_positions: HashSet::new(),
         }
     }
 

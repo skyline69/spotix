@@ -34,7 +34,8 @@ use crate::{
         self, Album, AlbumType, Artist, ArtistAlbums, ArtistInfo, ArtistLink, ArtistStats,
         AudioAnalysis, Cached, Episode, EpisodeId, EpisodeLink, Image, MixedView, Nav, Page,
         Playlist, PublicUser, Range, Recommendations, RecommendationsRequest, SearchResults,
-        SearchTopic, Show, SpotifyUrl, Track, TrackLines, UserProfile, utils::sanitize_html_string,
+        SearchTopic, Show, SpotifyUrl, Track, TrackId, TrackLines, UserProfile,
+        utils::sanitize_html_string,
     },
     error::Error,
     ui::credits::TrackCredits,
@@ -1563,7 +1564,7 @@ impl WebApi {
         )
         .query("uris", track_uri);
         self.request(request)?;
-        self.cache.remove("playlist-tracks", playlist_id);
+        self.cache.clear_bucket("playlist-tracks");
         self.cache.remove("playlist", playlist_id);
         Ok(())
     }
@@ -1572,16 +1573,74 @@ impl WebApi {
     pub fn remove_track_from_playlist(
         &self,
         playlist_id: &str,
+        track_id: TrackId,
         track_pos: usize,
+    ) -> Result<(), Error> {
+        self.remove_tracks_from_playlist(playlist_id, &[(track_id, track_pos)])
+    }
+
+    // https://developer.spotify.com/documentation/web-api/reference/remove-tracks-playlist
+    pub fn remove_tracks_from_playlist(
+        &self,
+        playlist_id: &str,
+        items: &[(TrackId, usize)],
+    ) -> Result<(), Error> {
+        if items.is_empty() {
+            return Ok(());
+        }
+
+        let mut uri_positions: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut position_only: Vec<usize> = Vec::new();
+
+        for (track_id, pos) in items {
+            if let Some(uri) = track_id.0.to_uri() {
+                uri_positions.entry(uri).or_default().push(*pos);
+            } else {
+                position_only.push(*pos);
+            }
+        }
+
+        if !uri_positions.is_empty() {
+            let mut tracks = Vec::with_capacity(uri_positions.len());
+            for (uri, mut positions) in uri_positions {
+                positions.sort_unstable();
+                tracks.push(json!({
+                    "uri": uri,
+                    "positions": positions,
+                }));
+            }
+
+            let request = &RequestBuilder::new(
+                format!("v1/playlists/{playlist_id}/tracks"),
+                Method::Delete,
+                None,
+            )
+            .set_body(Some(json!({ "tracks": tracks })));
+            self.request(request)?;
+            self.cache.clear_bucket("playlist-tracks");
+            self.cache.remove("playlist", playlist_id);
+        }
+
+        if !position_only.is_empty() {
+            position_only.sort_unstable_by(|a, b| b.cmp(a));
+            self.remove_track_positions_request(playlist_id, &position_only)?;
+        }
+        Ok(())
+    }
+
+    fn remove_track_positions_request(
+        &self,
+        playlist_id: &str,
+        track_positions: &[usize],
     ) -> Result<(), Error> {
         let request = &RequestBuilder::new(
             format!("v1/playlists/{playlist_id}/tracks"),
             Method::Delete,
             None,
         )
-        .set_body(Some(json!({ "positions": [track_pos] })));
+        .set_body(Some(json!({ "positions": track_positions })));
         self.request(request)?;
-        self.cache.remove("playlist-tracks", playlist_id);
+        self.cache.clear_bucket("playlist-tracks");
         self.cache.remove("playlist", playlist_id);
         Ok(())
     }
