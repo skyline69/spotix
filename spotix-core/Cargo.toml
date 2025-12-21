@@ -43,7 +43,7 @@ shannon = { version = "0.2.0" }
 
 # Audio
 audio_thread_priority = "0.34.0"
-cpal = { version = "0.16.0", optional = true }
+cpal = { version = "0.17.0", optional = true }
 cubeb = { git = "https://github.com/mozilla/cubeb-rs", optional = true }
 libsamplerate = { version = "0.1.0" }
 rb = { version = "0.4.1" }

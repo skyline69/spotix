@@ -23,7 +23,7 @@ impl CpalOutput {
             .default_output_device()
             .ok_or(cpal::DefaultStreamConfigError::DeviceNotAvailable)?;
 
-        if let Ok(name) = device.name() {
+        if let Ok(name) = device.description() {
             log::info!("using audio device: {name:?}");
         }
 
@@ -55,7 +55,7 @@ impl CpalOutput {
         device: &cpal::Device,
     ) -> Result<cpal::SupportedStreamConfig, Error> {
         const PREFERRED_SAMPLE_FORMAT: cpal::SampleFormat = cpal::SampleFormat::F32;
-        const PREFERRED_SAMPLE_RATE: cpal::SampleRate = cpal::SampleRate(44_100);
+        const PREFERRED_SAMPLE_RATE: cpal::SampleRate = 44_100;
         const PREFERRED_CHANNELS: cpal::ChannelCount = 2;
 
         for s in device.supported_output_configs()? {
@@ -108,7 +108,7 @@ impl AudioSink for CpalSink {
     }
 
     fn sample_rate(&self) -> u32 {
-        self.sample_rate.0
+        self.sample_rate
     }
 
     fn set_volume(&self, volume: f32) {
