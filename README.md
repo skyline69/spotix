@@ -9,7 +9,10 @@
   </p>
 </div>
 
-<img width="1091" height="1019" alt="Spotix UI" src="https://github.com/user-attachments/assets/6f993dd5-8000-407b-8980-9cdc5a0855bc" />
+<img width="1917" height="1079" alt="image" src="https://github.com/user-attachments/assets/82fb24a9-62fd-4475-b59e-6804d3532e1a" />
+
+<img width="1922" height="1080" alt="image" src="https://github.com/user-attachments/assets/f993a6c5-9d96-48d4-a0ba-2e05d0bf2ec3" />
+
 
 ## Fork notice
 - This project is a fork of https://github.com/jpochyla/psst
@@ -30,9 +33,6 @@
 ## Status
 - Early development; expect missing features and rough edges
 - Requires a Spotify Premium account
-
-
-
 
 ## Download
 
@@ -82,6 +82,42 @@ cargo run --bin spotix-gui
 cargo install cargo-bundle
 cargo bundle --release
 ```
+## Cool Features compared to psst
+
+### Equalizer with all the Spotify presets
+<img width="412" height="448" alt="image" src="https://github.com/user-attachments/assets/b0def49f-4b99-46fc-9fb1-20aea44cc913" />
+
+<img width="249" height="290" alt="image" src="https://github.com/user-attachments/assets/76202a2e-54bf-468d-b521-400b57d1bb34" />
+
+### Crossfade
+<img width="250" height="78" alt="image" src="https://github.com/user-attachments/assets/c523446e-81ba-4085-a852-33632111e339" />
+
+### Autoplay using Spotify's algorithm
+<img width="299" height="70" alt="image" src="https://github.com/user-attachments/assets/c294b1ac-222d-4e86-a772-4d41c4aa8a9c" />
+
+### Full Caching support for maximum performance!
+
+<img width="407" height="452" alt="image" src="https://github.com/user-attachments/assets/f6fce925-6a01-4a2e-9ef5-4135fc864771" />
+
+### And some more
+- Up to date dependencies
+- Clean codebase
+- and much more...
+
+## Built-in Themes
+
+### Gruvbox Dark
+<img width="938" height="501" alt="image" src="https://github.com/user-attachments/assets/d5ef9dff-8fe0-4450-90cf-2f63fa04a967" />
+
+### Dracula
+<img width="943" height="513" alt="image" src="https://github.com/user-attachments/assets/2979b8f8-04f1-437c-8610-62f315f1f0db" />
+
+### Kanagawa
+<img width="942" height="511" alt="image" src="https://github.com/user-attachments/assets/04bf1d41-fbd0-4960-80c6-8029f6296e64" />
+
+### Any many more!
+
+<img width="338" height="415" alt="image" src="https://github.com/user-attachments/assets/6e02bb5c-825a-4c0c-ae49-50c3335b9d53" />
 
 ## Theming
 - Place TOML theme files in `~/.config/Spotix/themes/`.
