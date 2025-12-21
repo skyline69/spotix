@@ -1,12 +1,14 @@
 use std::{
     f64::consts::PI,
+    sync::OnceLock,
     time::{Duration, SystemTime},
 };
 
 use druid::{
-    Data, Point, Vec2, Widget, WidgetExt, WidgetPod,
+    Data, ImageBuf, Point, Vec2, Widget, WidgetExt, WidgetPod, image,
     kurbo::Circle,
-    widget::{CrossAxisAlignment, Flex, Label, SizedBox, prelude::*},
+    piet::InterpolationMode,
+    widget::{CrossAxisAlignment, FillStrat, Flex, Image, Label, SizedBox, prelude::*},
 };
 use time_humanize::HumanTime;
 
@@ -26,6 +28,64 @@ impl Spinner {
     pub fn new() -> Self {
         Self { t: 0.0 }
     }
+}
+
+pub fn logo_widget<T: Data>(size: f64) -> impl Widget<T> {
+    let size = size.round();
+    Image::new(logo_image_for_size(size))
+        .fill_mode(FillStrat::None)
+        .interpolation_mode(InterpolationMode::NearestNeighbor)
+        .fix_size(size, size)
+}
+
+fn logo_image_for_size(size: f64) -> ImageBuf {
+    let size = size.round() as u32;
+    match size {
+        24 => logo_image_24(),
+        48 => logo_image_48(),
+        96 => logo_image_96(),
+        _ if size < 36 => logo_image_24(),
+        _ if size < 72 => logo_image_48(),
+        _ => logo_image_96(),
+    }
+}
+
+fn logo_image_24() -> ImageBuf {
+    static LOGO_IMAGE: OnceLock<ImageBuf> = OnceLock::new();
+    LOGO_IMAGE.get_or_init(|| load_logo("logo-24.png")).clone()
+}
+
+fn logo_image_48() -> ImageBuf {
+    static LOGO_IMAGE: OnceLock<ImageBuf> = OnceLock::new();
+    LOGO_IMAGE.get_or_init(|| load_logo("logo-48.png")).clone()
+}
+
+fn logo_image_96() -> ImageBuf {
+    static LOGO_IMAGE: OnceLock<ImageBuf> = OnceLock::new();
+    LOGO_IMAGE.get_or_init(|| load_logo("logo-96.png")).clone()
+}
+
+fn load_logo(file_name: &str) -> ImageBuf {
+    let bytes = match file_name {
+        "logo-24.png" => include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../assets/logo-24.png"
+        ))
+        .as_slice(),
+        "logo-48.png" => include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../assets/logo-48.png"
+        ))
+        .as_slice(),
+        "logo-96.png" => include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../assets/logo-96.png"
+        ))
+        .as_slice(),
+        _ => panic!("Unknown logo asset: {file_name}"),
+    };
+    let image = image::load_from_memory(bytes).expect("Failed to load logo image");
+    ImageBuf::from_dynamic_image(image)
 }
 
 impl<T: Data> Widget<T> for Spinner {

@@ -1,7 +1,13 @@
-# Spotix
-
-Spotix is a fast, native Spotify client written in Rust.
-It focuses on low overhead, a clean UI, and a lightweight runtime (no Electron).
+<div align="center">
+  <img src="assets/logo.svg" alt="Spotix logo" width="96" height="96" />
+  <h1>Spotix</h1>
+  <p>Fast, native Spotify client written in Rust — low overhead, clean UI, lightweight runtime (no Electron).</p>
+  <p>
+    <a href="https://github.com/skyline69/spotix/releases/latest">Latest Release</a>
+    •
+    <a href="https://github.com/skyline69/spotix/issues">Issues</a>
+  </p>
+</div>
 
 <img width="1091" height="1019" alt="Spotix UI" src="https://github.com/user-attachments/assets/6f993dd5-8000-407b-8980-9cdc5a0855bc" />
 
@@ -28,7 +34,7 @@ It focuses on low overhead, a clean UI, and a lightweight runtime (no Electron).
 
 
 
-Download
+## Download
 
 GitHub Actions build and publish releases when changes land on `main`.
 Grab the latest installers from the [Releases page](https://github.com/skyline69/spotix/releases/latest).
@@ -42,14 +48,14 @@ Grab the latest installers from the [Releases page](https://github.com/skyline69
 | macOS                  | [Download](https://github.com/skyline69/spotix/releases/latest/download/Spotix.dmg)          |
 | Windows                | [Download](https://github.com/skyline69/spotix/releases/latest/download/Spotix.exe)          |
 
-Build
+## Build
 - Rust stable (1.65.0 or newer)
 
-Linux dependencies
+### Linux dependencies
 - Debian/Ubuntu: `sudo apt-get install libssl-dev libgtk-3-dev libcairo2-dev libasound2-dev`
 - RHEL/Fedora: `sudo dnf install openssl-devel gtk3-devel cairo-devel alsa-lib-devel`
 
-OpenBSD (WIP)
+### OpenBSD (WIP)
 ```shell
 doas pkg_add gtk+3 cairo llvm
 export LIBCLANG_PATH=/usr/local/lib
@@ -59,25 +65,25 @@ If you hit rustc memory errors while building gtk:
 ulimit -d $(( 2 * `ulimit -d` ))
 ```
 
-Build from source
+### Build from source
 ```shell
 cargo build
 # Add --release for release builds.
 ```
 
-Run from source
+### Run from source
 ```shell
 cargo run --bin spotix-gui
 # Add --release for release builds.
 ```
 
-Build app bundle (macOS)
+### Build app bundle (macOS)
 ```shell
 cargo install cargo-bundle
 cargo bundle --release
 ```
 
-Theming
+## Theming
 - Place TOML theme files in `~/.config/Spotix/themes/`.
 - Spotix ships with multiple preset themes that auto-install into that folder on first run.
 - Each theme file must include a `name` field (e.g. `name = "catppuccin"`) and color keys. Example:
@@ -115,17 +121,17 @@ status_text_color = "#bac2de"
 ```
 - Select themes in Settings → General. Custom themes are listed by their `name`.
 
-Project layout
+## Project layout
 - `/spotix-core` core library (session, decoding, playback)
 - `/spotix-gui` GUI app (Druid)
 - `/spotix-cli` minimal CLI example
 
-Privacy
+## Privacy
 Spotix connects only to official Spotify servers.
 Credentials are not stored; a reusable token is used instead.
 Cached data is stored locally and can be deleted at any time.
 
-Credits
+## Credits
 - librespot: https://github.com/librespot-org/librespot
 - druid: https://github.com/linebender/druid
 - ncspot: https://github.com/hrkfdn/ncspot

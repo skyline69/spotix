@@ -25,7 +25,7 @@ use log::warn;
 use serde::Deserialize;
 use spotix_core::{connection::Credentials, lastfm, oauth, session::SessionConfig};
 
-use super::{icons::SvgIcon, theme};
+use super::{icons::SvgIcon, theme, utils};
 
 const CLEAR_CACHE: Selector = Selector::new("app.preferences.clear-cache");
 
@@ -1277,6 +1277,12 @@ fn format_bytes(bytes: u64) -> String {
 }
 
 fn about_tab_widget() -> impl Widget<AppState> {
+    let logo = Flex::row()
+        .with_child(utils::logo_widget(theme::grid(6.0)))
+        .with_spacer(theme::grid(1.5))
+        .with_child(Label::new("Spotix").with_font(theme::UI_FONT_MEDIUM))
+        .padding((0.0, theme::grid(1.0)));
+
     // Build Info
     let commit_hash = Flex::row()
         .with_child(Label::new("Commit Hash:   "))
@@ -1301,6 +1307,7 @@ fn about_tab_widget() -> impl Widget<AppState> {
     Flex::column()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .must_fill_main_axis(true)
+        .with_child(logo)
         .with_child(Label::new("Build Info").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(2.0))
         .with_child(commit_hash)

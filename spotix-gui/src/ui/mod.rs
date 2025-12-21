@@ -407,6 +407,13 @@ fn route_widget() -> impl Widget<AppState> {
 
 fn sidebar_menu_widget() -> impl Widget<AppState> {
     Flex::column()
+        .with_child(
+            Flex::row()
+                .with_child(utils::logo_widget(theme::grid(3.0)))
+                .with_spacer(theme::grid(1.0))
+                .with_child(Label::new("Spotix").with_font(theme::UI_FONT_MEDIUM))
+                .padding((theme::grid(2.0), theme::grid(2.0))),
+        )
         .with_default_spacer()
         .with_child(sidebar_link_widget("Home", Some(&icons::HOME), Nav::Home))
         .with_child(sidebar_link_widget(
