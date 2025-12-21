@@ -79,20 +79,18 @@ impl WebApiCache {
     pub fn remove(&self, bucket: &str, key: &str) {
         if let Some(path) = self.key(bucket, key)
             && let Err(err) = fs::remove_file(path)
+            && err.kind() != std::io::ErrorKind::NotFound
         {
-            if err.kind() != std::io::ErrorKind::NotFound {
-                log::error!("failed to remove WebAPI cache entry: {err:?}");
-            }
+            log::error!("failed to remove WebAPI cache entry: {err:?}");
         }
     }
 
     pub fn clear_bucket(&self, bucket: &str) {
         if let Some(path) = self.bucket(bucket)
             && let Err(err) = fs::remove_dir_all(path)
+            && err.kind() != std::io::ErrorKind::NotFound
         {
-            if err.kind() != std::io::ErrorKind::NotFound {
-                log::error!("failed to clear WebAPI cache bucket: {err:?}");
-            }
+            log::error!("failed to clear WebAPI cache bucket: {err:?}");
         }
     }
 

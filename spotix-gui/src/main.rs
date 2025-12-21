@@ -37,6 +37,7 @@ fn main() {
     let config = Config::load().unwrap_or_default();
 
     ui::theme::configure_fontconfig();
+    ui::theme::ensure_preset_themes();
 
     let paginated_limit = config.paginated_limit;
     let mut state = AppState::default_with_config(config.clone());

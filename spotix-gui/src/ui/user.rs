@@ -18,10 +18,10 @@ pub fn user_widget() -> impl Widget<AppState> {
         // TODO: Avoid the locking here.
         |state: &AppState, _| state.session.is_connected(),
         Label::new("Connected")
-            .with_text_color(theme::PLACEHOLDER_COLOR)
+            .with_text_color(theme::STATUS_TEXT_COLOR)
             .with_text_size(theme::TEXT_SIZE_SMALL),
         Label::new("Disconnected")
-            .with_text_color(theme::PLACEHOLDER_COLOR)
+            .with_text_color(theme::STATUS_TEXT_COLOR)
             .with_text_size(theme::TEXT_SIZE_SMALL),
     );
 

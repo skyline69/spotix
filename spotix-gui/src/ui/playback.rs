@@ -79,7 +79,11 @@ fn playing_item_widget() -> impl Widget<NowPlaying> {
                     1.0,
                 )
                 .with_spacer(theme::grid(0.25))
-                .with_child(playback_origin_icon(origin).scale(theme::ICON_SIZE_SMALL))
+                .with_child(
+                    playback_origin_icon(origin)
+                        .scale(theme::ICON_SIZE_SMALL)
+                        .with_color(theme::MEDIA_CONTROL_ICON),
+                )
                 .boxed()
         },
     )
@@ -133,6 +137,7 @@ fn playing_item_widget() -> impl Widget<NowPlaying> {
                                 false => &icons::CIRCLE_PLUS,
                             }
                             .scale(theme::ICON_SIZE_SMALL)
+                            .with_color(theme::MEDIA_CONTROL_ICON)
                             .boxed()
                         },
                     )
@@ -709,7 +714,7 @@ fn queue_remove_icon() -> impl Widget<QueuePanelRow> {
         let size = ctx.size();
         let center = size.to_rect().center();
         let radius = (size.width.min(size.height) * 0.5) - 1.0;
-        let color = env.get(theme::PLACEHOLDER_COLOR);
+        let color = env.get(theme::MEDIA_CONTROL_ICON_MUTED);
         ctx.stroke(Circle::new(center, radius), &color, 1.0);
         let half = radius * 0.6;
         let line = Line::new((center.x - half, center.y), (center.x + half, center.y));
@@ -904,37 +909,39 @@ fn player_play_pause_widget() -> impl Widget<Playback> {
         |playback: &Playback, _| playback.state,
         |state, _, _| match state {
             PlaybackState::Loading => Spinner::new()
-                .with_color(theme::GREY_400)
+                .with_color(theme::MEDIA_CONTROL_ICON_MUTED)
                 .fix_size(theme::grid(3.0), theme::grid(3.0))
                 .padding(theme::grid(1.0))
                 .link()
                 .circle()
-                .border(theme::GREY_600, 1.0)
+                .border(theme::MEDIA_CONTROL_BORDER, 1.0)
                 .on_left_click(|ctx, _, _, _| ctx.submit_command(cmd::PLAY_STOP))
                 .boxed(),
             PlaybackState::Playing => icons::PAUSE
                 .scale((theme::grid(3.0), theme::grid(3.0)))
+                .with_color(theme::MEDIA_CONTROL_ICON)
                 .padding(theme::grid(1.0))
                 .link()
                 .circle()
-                .border(theme::GREY_500, 1.0)
+                .border(theme::MEDIA_CONTROL_BORDER, 1.0)
                 .on_left_click(|ctx, _, _, _| ctx.submit_command(cmd::PLAY_PAUSE))
                 .boxed(),
             PlaybackState::Paused => icons::PLAY
                 .scale((theme::grid(3.0), theme::grid(3.0)))
+                .with_color(theme::MEDIA_CONTROL_ICON)
                 .padding(theme::grid(1.0))
                 .link()
                 .circle()
-                .border(theme::GREY_500, 1.0)
+                .border(theme::MEDIA_CONTROL_BORDER, 1.0)
                 .on_left_click(|ctx, _, _, _| ctx.submit_command(cmd::PLAY_RESUME))
                 .boxed(),
             PlaybackState::Stopped => icons::PLAY
                 .scale((theme::grid(3.0), theme::grid(3.0)))
-                .with_color(theme::GREY_600)
+                .with_color(theme::MEDIA_CONTROL_ICON_MUTED)
                 .padding(theme::grid(1.0))
                 .link()
                 .circle()
-                .border(theme::GREY_600, 1.0)
+                .border(theme::MEDIA_CONTROL_BORDER, 1.0)
                 .boxed(),
         },
     )
@@ -976,6 +983,7 @@ fn queue_behavior_icon(qb: &QueueBehavior) -> &'static SvgIcon {
 
 fn small_button_widget<T: Data>(svg: &SvgIcon) -> impl Widget<T> {
     svg.scale((theme::grid(2.0), theme::grid(2.0)))
+        .with_color(theme::MEDIA_CONTROL_ICON)
         .padding(theme::grid(1.0))
         .link()
         .rounded(theme::BUTTON_BORDER_RADIUS)
@@ -993,7 +1001,7 @@ fn toggle_button_widget(
                 .with_color(if *active {
                     theme::PLAYBACK_TOGGLE_FG_ACTIVE
                 } else {
-                    theme::ICON_COLOR
+                    theme::MEDIA_CONTROL_ICON
                 });
             let base_color = if *active {
                 theme::PLAYBACK_TOGGLE_BG_ACTIVE
@@ -1020,7 +1028,7 @@ fn toggle_button_widget(
 
 fn faded_button_widget<T: Data>(svg: &SvgIcon) -> impl Widget<T> {
     svg.scale((theme::grid(2.0), theme::grid(2.0)))
-        .with_color(theme::PLACEHOLDER_COLOR)
+        .with_color(theme::MEDIA_CONTROL_ICON_MUTED)
         .padding(theme::grid(1.0))
         .link()
         .rounded(theme::BUTTON_BORDER_RADIUS)

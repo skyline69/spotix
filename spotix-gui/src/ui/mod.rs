@@ -483,8 +483,8 @@ fn volume_slider() -> impl Widget<AppState> {
                 .expand_width()
                 .env_scope(|env, _| {
                     env.set(theme::BASIC_WIDGET_HEIGHT, theme::grid(1.5));
-                    env.set(theme::FOREGROUND_LIGHT, env.get(theme::GREY_400));
-                    env.set(theme::FOREGROUND_DARK, env.get(theme::GREY_400));
+                    env.set(theme::FOREGROUND_LIGHT, env.get(theme::MEDIA_CONTROL_ICON));
+                    env.set(theme::FOREGROUND_DARK, env.get(theme::MEDIA_CONTROL_ICON));
                 })
                 .with_cursor(Cursor::Pointer),
             1.0,
@@ -492,7 +492,7 @@ fn volume_slider() -> impl Widget<AppState> {
         .with_default_spacer()
         .with_child(
             Label::dynamic(|&volume: &f64, _| format!("{}%", (volume * 100.0).floor()))
-                .with_text_color(theme::PLACEHOLDER_COLOR)
+                .with_text_color(theme::STATUS_TEXT_COLOR)
                 .with_text_size(theme::TEXT_SIZE_SMALL)
                 .fix_width(theme::grid(4.0)),
         )

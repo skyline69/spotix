@@ -45,6 +45,11 @@ pub const TEXT_SIZE_SMALL: Key<f64> = Key::new("app.text-size-small");
 pub const SPOTIFY_FONT_FAMILY: &str = "Spotify Mix";
 
 pub const ICON_COLOR: Key<Color> = Key::new("app.icon-color");
+pub const ICON_COLOR_MUTED: Key<Color> = Key::new("app.icon-color-muted");
+pub const MEDIA_CONTROL_ICON: Key<Color> = Key::new("app.media-control-icon");
+pub const MEDIA_CONTROL_ICON_MUTED: Key<Color> = Key::new("app.media-control-icon-muted");
+pub const MEDIA_CONTROL_BORDER: Key<Color> = Key::new("app.media-control-border");
+pub const STATUS_TEXT_COLOR: Key<Color> = Key::new("app.status-text-color");
 pub const ICON_SIZE_TINY: Size = Size::new(12.0, 12.0);
 pub const ICON_SIZE_SMALL: Size = Size::new(14.0, 14.0);
 pub const ICON_SIZE_MEDIUM: Size = Size::new(16.0, 16.0);
@@ -144,6 +149,28 @@ pub fn configure_fontconfig() {
     }
 }
 
+pub fn ensure_preset_themes() {
+    let dir = match Config::themes_dir() {
+        Some(dir) => dir,
+        None => return,
+    };
+
+    if let Err(err) = fs::create_dir_all(&dir) {
+        warn!("Failed to create themes directory {:?}: {}", dir, err);
+        return;
+    }
+
+    for (file_name, contents) in PRESET_THEMES {
+        let path = dir.join(file_name);
+        if path.exists() {
+            continue;
+        }
+        if let Err(err) = fs::write(&path, contents) {
+            warn!("Failed to write preset theme {:?}: {}", path, err);
+        }
+    }
+}
+
 fn escape_xml(input: &str) -> String {
     input
         .replace('&', "&amp;")
@@ -151,6 +178,344 @@ fn escape_xml(input: &str) -> String {
         .replace('>', "&gt;")
 }
 
+const PRESET_THEMES: &[(&str, &str)] = &[
+    (
+        "Dracula.toml",
+        r##"name = "Dracula"
+base = "dark"
+
+[colors]
+grey_000 = "#f8f8f2"
+grey_100 = "#e9e9f2"
+grey_200 = "#d6d6e3"
+grey_300 = "#a6a6bf"
+grey_400 = "#7b7f9f"
+grey_500 = "#5a5f7a"
+grey_600 = "#3b3f52"
+grey_700 = "#282a36"
+blue_100 = "#50fa7b"
+blue_200 = "#8be9fd"
+red = "#ff5555"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#50fa7b"
+lyric_past = "#5a5f7a"
+lyric_hover = "#8be9fd"
+playback_toggle_bg_active = "#50fa7b"
+playback_toggle_bg_inactive = "#3b3f52"
+playback_toggle_fg_active = "#282a36"
+"##,
+    ),
+    (
+        "Nord.toml",
+        r##"name = "Nord"
+base = "dark"
+
+[colors]
+grey_000 = "#f8fbff"
+grey_100 = "#eceff4"
+grey_200 = "#e5e9f0"
+grey_300 = "#d8dee9"
+grey_400 = "#4c566a"
+grey_500 = "#434c5e"
+grey_600 = "#3b4252"
+grey_700 = "#2e3440"
+blue_100 = "#88c0d0"
+blue_200 = "#81a1c1"
+red = "#bf616a"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#88c0d0"
+lyric_past = "#4c566a"
+lyric_hover = "#81a1c1"
+playback_toggle_bg_active = "#88c0d0"
+playback_toggle_bg_inactive = "#3b4252"
+playback_toggle_fg_active = "#2e3440"
+"##,
+    ),
+    (
+        "Gruvbox Dark.toml",
+        r##"name = "Gruvbox Dark"
+base = "dark"
+
+[colors]
+grey_000 = "#fbf1c7"
+grey_100 = "#ebdbb2"
+grey_200 = "#d5c4a1"
+grey_300 = "#a89984"
+grey_400 = "#665c54"
+grey_500 = "#504945"
+grey_600 = "#3c3836"
+grey_700 = "#282828"
+blue_100 = "#b8bb26"
+blue_200 = "#83a598"
+red = "#fb4934"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#b8bb26"
+lyric_past = "#665c54"
+lyric_hover = "#83a598"
+playback_toggle_bg_active = "#b8bb26"
+playback_toggle_bg_inactive = "#3c3836"
+playback_toggle_fg_active = "#282828"
+"##,
+    ),
+    (
+        "Solarized Dark.toml",
+        r##"name = "Solarized Dark"
+base = "dark"
+
+[colors]
+grey_000 = "#fdf6e3"
+grey_100 = "#eee8d5"
+grey_200 = "#93a1a1"
+grey_300 = "#839496"
+grey_400 = "#657b83"
+grey_500 = "#586e75"
+grey_600 = "#073642"
+grey_700 = "#002b36"
+blue_100 = "#2aa198"
+blue_200 = "#268bd2"
+red = "#dc322f"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#2aa198"
+lyric_past = "#586e75"
+lyric_hover = "#268bd2"
+playback_toggle_bg_active = "#2aa198"
+playback_toggle_bg_inactive = "#073642"
+playback_toggle_fg_active = "#002b36"
+"##,
+    ),
+    (
+        "Solarized Light.toml",
+        r##"name = "Solarized Light"
+base = "light"
+
+[colors]
+grey_000 = "#002b36"
+grey_100 = "#073642"
+grey_200 = "#586e75"
+grey_300 = "#657b83"
+grey_400 = "#839496"
+grey_500 = "#93a1a1"
+grey_600 = "#eee8d5"
+grey_700 = "#fdf6e3"
+blue_100 = "#2aa198"
+blue_200 = "#268bd2"
+red = "#dc322f"
+link_hot = "#0000000d"
+link_active = "#00000008"
+link_cold = "#00000000"
+lyric_highlight = "#2aa198"
+lyric_past = "#93a1a1"
+lyric_hover = "#268bd2"
+playback_toggle_bg_active = "#2aa198"
+playback_toggle_bg_inactive = "#eee8d5"
+playback_toggle_fg_active = "#002b36"
+"##,
+    ),
+    (
+        "Catppuccin Mocha.toml",
+        r##"name = "Catppuccin Mocha"
+base = "dark"
+
+[colors]
+grey_000 = "#cdd6f4"
+grey_100 = "#bac2de"
+grey_200 = "#a6adc8"
+grey_300 = "#585b70"
+grey_400 = "#45475a"
+grey_500 = "#313244"
+grey_600 = "#181825"
+grey_700 = "#1e1e2e"
+blue_100 = "#a6e3a1"
+blue_200 = "#89b4fa"
+red = "#f38ba8"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#a6e3a1"
+lyric_past = "#45475a"
+lyric_hover = "#89b4fa"
+playback_toggle_bg_active = "#a6e3a1"
+playback_toggle_bg_inactive = "#313244"
+playback_toggle_fg_active = "#1e1e2e"
+"##,
+    ),
+    (
+        "Tokyo Night.toml",
+        r##"name = "Tokyo Night"
+base = "dark"
+
+[colors]
+grey_000 = "#d5d6f3"
+grey_100 = "#c0caf5"
+grey_200 = "#9aa5ce"
+grey_300 = "#565f89"
+grey_400 = "#414868"
+grey_500 = "#24283b"
+grey_600 = "#16161e"
+grey_700 = "#1a1b26"
+blue_100 = "#9ece6a"
+blue_200 = "#7aa2f7"
+red = "#f7768e"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#9ece6a"
+lyric_past = "#414868"
+lyric_hover = "#7aa2f7"
+playback_toggle_bg_active = "#9ece6a"
+playback_toggle_bg_inactive = "#24283b"
+playback_toggle_fg_active = "#1a1b26"
+"##,
+    ),
+    (
+        "One Dark.toml",
+        r##"name = "One Dark"
+base = "dark"
+
+[colors]
+grey_000 = "#d7dae0"
+grey_100 = "#abb2bf"
+grey_200 = "#9097a5"
+grey_300 = "#5c6370"
+grey_400 = "#4b5263"
+grey_500 = "#3e4451"
+grey_600 = "#21252b"
+grey_700 = "#282c34"
+blue_100 = "#98c379"
+blue_200 = "#61afef"
+red = "#e06c75"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#98c379"
+lyric_past = "#4b5263"
+lyric_hover = "#61afef"
+playback_toggle_bg_active = "#98c379"
+playback_toggle_bg_inactive = "#21252b"
+playback_toggle_fg_active = "#282c34"
+"##,
+    ),
+    (
+        "Monokai.toml",
+        r##"name = "Monokai"
+base = "dark"
+
+[colors]
+grey_000 = "#f8f8f2"
+grey_100 = "#e8e8e3"
+grey_200 = "#c4c0b0"
+grey_300 = "#75715e"
+grey_400 = "#49483e"
+grey_500 = "#383830"
+grey_600 = "#2f2f29"
+grey_700 = "#272822"
+blue_100 = "#a6e22e"
+blue_200 = "#66d9ef"
+red = "#f92672"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#a6e22e"
+lyric_past = "#49483e"
+lyric_hover = "#66d9ef"
+playback_toggle_bg_active = "#a6e22e"
+playback_toggle_bg_inactive = "#2f2f29"
+playback_toggle_fg_active = "#272822"
+"##,
+    ),
+    (
+        "Rose Pine.toml",
+        r##"name = "Rose Pine"
+base = "dark"
+
+[colors]
+grey_000 = "#e0def4"
+grey_100 = "#c4c0e0"
+grey_200 = "#908caa"
+grey_300 = "#6e6a86"
+grey_400 = "#403d52"
+grey_500 = "#26233a"
+grey_600 = "#1f1d2e"
+grey_700 = "#191724"
+blue_100 = "#9ccfd8"
+blue_200 = "#c4a7e7"
+red = "#eb6f92"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#9ccfd8"
+lyric_past = "#403d52"
+lyric_hover = "#c4a7e7"
+playback_toggle_bg_active = "#9ccfd8"
+playback_toggle_bg_inactive = "#1f1d2e"
+playback_toggle_fg_active = "#191724"
+"##,
+    ),
+    (
+        "Everforest Dark.toml",
+        r##"name = "Everforest Dark"
+base = "dark"
+
+[colors]
+grey_000 = "#e6dfc4"
+grey_100 = "#d3c6aa"
+grey_200 = "#a7b0a3"
+grey_300 = "#859289"
+grey_400 = "#4f585e"
+grey_500 = "#3d484d"
+grey_600 = "#343f44"
+grey_700 = "#2d353b"
+blue_100 = "#a7c080"
+blue_200 = "#7fbbb3"
+red = "#e67e80"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#a7c080"
+lyric_past = "#4f585e"
+lyric_hover = "#7fbbb3"
+playback_toggle_bg_active = "#a7c080"
+playback_toggle_bg_inactive = "#343f44"
+playback_toggle_fg_active = "#2d353b"
+"##,
+    ),
+    (
+        "Kanagawa.toml",
+        r##"name = "Kanagawa"
+base = "dark"
+
+[colors]
+grey_000 = "#dcd7ba"
+grey_100 = "#c8c3a8"
+grey_200 = "#a6a69c"
+grey_300 = "#727169"
+grey_400 = "#4a4a5e"
+grey_500 = "#363646"
+grey_600 = "#2a2a37"
+grey_700 = "#1f1f28"
+blue_100 = "#98bb6c"
+blue_200 = "#7e9cd8"
+red = "#e46876"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
+lyric_highlight = "#98bb6c"
+lyric_past = "#4a4a5e"
+lyric_hover = "#7e9cd8"
+playback_toggle_bg_active = "#98bb6c"
+playback_toggle_bg_inactive = "#2a2a37"
+playback_toggle_fg_active = "#1f1f28"
+"##,
+    ),
+];
 pub fn setup(env: &mut Env, state: &AppState) {
     let tone = match &state.config.theme {
         Theme::Light => {
@@ -170,7 +535,24 @@ pub fn setup(env: &mut Env, state: &AppState) {
 
     env.set(WINDOW_BACKGROUND_COLOR, env.get(GREY_700));
     env.set(TEXT_COLOR, env.get(GREY_100));
-    env.set(ICON_COLOR, env.get(GREY_400));
+    match tone {
+        ThemeTone::Light => {
+            env.set(ICON_COLOR, env.get(GREY_200));
+            env.set(ICON_COLOR_MUTED, env.get(GREY_300));
+            env.set(MEDIA_CONTROL_ICON, env.get(GREY_100));
+            env.set(MEDIA_CONTROL_ICON_MUTED, env.get(GREY_200));
+            env.set(MEDIA_CONTROL_BORDER, env.get(GREY_300));
+            env.set(STATUS_TEXT_COLOR, env.get(GREY_100));
+        }
+        ThemeTone::Dark => {
+            env.set(ICON_COLOR, env.get(GREY_400));
+            env.set(ICON_COLOR_MUTED, env.get(GREY_500));
+            env.set(MEDIA_CONTROL_ICON, env.get(GREY_200));
+            env.set(MEDIA_CONTROL_ICON_MUTED, env.get(GREY_400));
+            env.set(MEDIA_CONTROL_BORDER, env.get(GREY_500));
+            env.set(STATUS_TEXT_COLOR, env.get(GREY_200));
+        }
+    }
     env.set(PLACEHOLDER_COLOR, env.get(GREY_300));
     env.set(PRIMARY_LIGHT, env.get(BLUE_100));
     env.set(PRIMARY_DARK, env.get(BLUE_200));
@@ -286,6 +668,12 @@ struct ThemeColors {
     playback_toggle_bg_active: Option<String>,
     playback_toggle_bg_inactive: Option<String>,
     playback_toggle_fg_active: Option<String>,
+    icon_color: Option<String>,
+    icon_color_muted: Option<String>,
+    media_control_icon: Option<String>,
+    media_control_icon_muted: Option<String>,
+    media_control_border: Option<String>,
+    status_text_color: Option<String>,
 }
 
 fn setup_custom_theme(env: &mut Env, name: &str) -> Option<ThemeTone> {
@@ -409,6 +797,37 @@ fn apply_theme_colors(env: &mut Env, colors: &ThemeColors) {
         PLAYBACK_TOGGLE_FG_ACTIVE,
         &colors.playback_toggle_fg_active,
         "playback_toggle_fg_active",
+    );
+    set_color(env, ICON_COLOR, &colors.icon_color, "icon_color");
+    set_color(
+        env,
+        ICON_COLOR_MUTED,
+        &colors.icon_color_muted,
+        "icon_color_muted",
+    );
+    set_color(
+        env,
+        MEDIA_CONTROL_ICON,
+        &colors.media_control_icon,
+        "media_control_icon",
+    );
+    set_color(
+        env,
+        MEDIA_CONTROL_ICON_MUTED,
+        &colors.media_control_icon_muted,
+        "media_control_icon_muted",
+    );
+    set_color(
+        env,
+        MEDIA_CONTROL_BORDER,
+        &colors.media_control_border,
+        "media_control_border",
+    );
+    set_color(
+        env,
+        STATUS_TEXT_COLOR,
+        &colors.status_text_color,
+        "status_text_color",
     );
 }
 

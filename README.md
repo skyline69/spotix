@@ -79,17 +79,39 @@ cargo bundle --release
 
 Theming
 - Place TOML theme files in `~/.config/Spotix/themes/`.
+- Spotix ships with multiple preset themes that auto-install into that folder on first run.
 - Each theme file must include a `name` field (e.g. `name = "catppuccin"`) and color keys. Example:
 ```toml
 name = "catppuccin"
-primary = "#b4befe"
-secondary = "#cba6f7"
-background = "#1e1e2e"
-foreground = "#cdd6f4"
-highlight = "#f38ba8"
+base = "dark"
+
+[colors]
+grey_000 = "#cdd6f4"
+grey_100 = "#bac2de"
+grey_200 = "#a6adc8"
+grey_300 = "#585b70"
+grey_400 = "#45475a"
+grey_500 = "#313244"
+grey_600 = "#181825"
+grey_700 = "#1e1e2e"
+blue_100 = "#a6e3a1"
+blue_200 = "#89b4fa"
+red = "#f38ba8"
+link_hot = "#ffffff14"
+link_active = "#ffffff0f"
+link_cold = "#00000000"
 lyric_highlight = "#cba6f7"
 lyric_past = "#6c7086"
 lyric_hover = "#cdd6f4"
+playback_toggle_bg_active = "#a6e3a1"
+playback_toggle_bg_inactive = "#313244"
+playback_toggle_fg_active = "#1e1e2e"
+icon_color = "#8e95b4"
+icon_color_muted = "#6c7086"
+media_control_icon = "#cdd6f4"
+media_control_icon_muted = "#a6adc8"
+media_control_border = "#585b70"
+status_text_color = "#bac2de"
 ```
 - Select themes in Settings → General. Custom themes are listed by their `name`.
 
