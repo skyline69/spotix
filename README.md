@@ -1,8 +1,7 @@
-# CURRENTLY BROKEN
-Spotify recently blocked many essential features from their API, which allowed users to stream audio and do other things on their platform.
-This decision broke many other open source applications which also relied on their API. Thanks Spotify for nothing.
-
-[More information to this problem](https://community.spotify.com/t5/Spotify-for-Developers/Web-API-Get-Track-s-Audio-Features-403-error/m-p/6654507/highlight/true#M16618)
+# DEVELOPMENT WILL SOON BE CONTINUED
+Due to some drama with the Spotify API, development was discontinued for a while.
+Apperantly this issue has been solved, so there is still hope.
+This means: We are back baby!
 
 <div align="center">
   <img src="assets/logo.svg" alt="Spotix logo" width="96" height="96" />
