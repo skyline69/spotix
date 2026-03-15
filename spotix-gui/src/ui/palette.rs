@@ -66,27 +66,34 @@ pub fn extract_palette(image: &ImageBuf) -> AlbumPalette {
         dominant_rgb
     };
 
+    // Find the most vibrant (saturated) cluster for the active highlight
+    let accent_rgb = scored
+        .iter()
+        .max_by(|a, b| {
+            let sa = saturation(&a.1);
+            let sb = saturation(&b.1);
+            sa.partial_cmp(&sb).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|c| c.1)
+        .unwrap_or(dominant_rgb);
+
     // Darken colors for background use (lyrics need dark backgrounds)
     let dominant = darken(dominant_rgb, 0.35);
     let secondary = darken(secondary_rgb, 0.25);
 
+    // Brighten the accent so it pops against the dark background
+    let accent = brighten(accent_rgb, 1.6);
+
     // Compute text colors for contrast
     let bg_lum = luminance(&dominant);
-    let (text, highlight, past) = if bg_lum > 0.3 {
-        // Light background: use dark text
-        (
-            Color::rgb8(20, 20, 20),
-            Color::rgb8(0, 0, 0),
-            Color::rgba8(20, 20, 20, 140),
-        )
+    let (text, past) = if bg_lum > 0.3 {
+        (Color::rgb8(20, 20, 20), Color::rgba8(20, 20, 20, 140))
     } else {
-        // Dark background: use light text
-        (
-            Color::rgb8(230, 230, 230),
-            Color::rgb8(255, 255, 255),
-            Color::rgba8(200, 200, 200, 140),
-        )
+        (Color::rgb8(230, 230, 230), Color::rgba8(200, 200, 200, 140))
     };
+
+    // Ensure the accent has enough contrast against the background
+    let highlight = ensure_contrast(&accent, &dominant, 4.5);
 
     AlbumPalette {
         dominant: to_color(&dominant),
@@ -213,6 +220,80 @@ fn darken(rgb: [f64; 3], factor: f64) -> [f64; 3] {
 
 fn luminance(rgb: &[f64; 3]) -> f64 {
     (rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114) / 255.0
+}
+
+/// Relative luminance per WCAG (sRGB linearized).
+fn relative_luminance(rgb: &[f64; 3]) -> f64 {
+    fn linearize(v: f64) -> f64 {
+        let s = v / 255.0;
+        if s <= 0.03928 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    0.2126 * linearize(rgb[0]) + 0.7152 * linearize(rgb[1]) + 0.0722 * linearize(rgb[2])
+}
+
+/// WCAG contrast ratio between two colors.
+fn contrast_ratio(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+    let la = relative_luminance(a) + 0.05;
+    let lb = relative_luminance(b) + 0.05;
+    if la > lb {
+        la / lb
+    } else {
+        lb / la
+    }
+}
+
+/// HSL saturation of an RGB color (0-255 range).
+fn saturation(rgb: &[f64; 3]) -> f64 {
+    let r = rgb[0] / 255.0;
+    let g = rgb[1] / 255.0;
+    let b = rgb[2] / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    if max == min {
+        return 0.0;
+    }
+    let l = (max + min) / 2.0;
+    let d = max - min;
+    if l > 0.5 {
+        d / (2.0 - max - min)
+    } else {
+        d / (max + min)
+    }
+}
+
+/// Brighten an RGB color by a factor (>1.0 = brighter).
+fn brighten(rgb: [f64; 3], factor: f64) -> [f64; 3] {
+    [
+        (rgb[0] * factor).clamp(0.0, 255.0),
+        (rgb[1] * factor).clamp(0.0, 255.0),
+        (rgb[2] * factor).clamp(0.0, 255.0),
+    ]
+}
+
+/// Ensure a foreground color has at least `min_ratio` contrast against a
+/// background. If not, progressively lighten or darken until it does.
+fn ensure_contrast(fg: &[f64; 3], bg: &[f64; 3], min_ratio: f64) -> Color {
+    let mut adjusted = *fg;
+    let bg_lum = relative_luminance(bg);
+
+    for _ in 0..20 {
+        if contrast_ratio(&adjusted, bg) >= min_ratio {
+            break;
+        }
+        // Push away from background luminance
+        if bg_lum < 0.5 {
+            // Dark bg: lighten the foreground
+            adjusted = brighten(adjusted, 1.15);
+        } else {
+            // Light bg: darken the foreground
+            adjusted = darken(adjusted, 0.85);
+        }
+    }
+    to_color(&adjusted)
 }
 
 fn to_color(rgb: &[f64; 3]) -> Color {
