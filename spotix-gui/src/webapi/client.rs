@@ -1376,8 +1376,26 @@ impl WebApi {
         None
     }
 
+    /// Clears the persisted rate-limit state unconditionally.
+    /// Use after re-authentication when fresh credentials make the old
+    /// cooldown irrelevant.
     pub fn clear_rate_limit_state(&self) {
         self.clear_rate_limit();
+    }
+
+    /// Clears the persisted rate-limit state only if the cooldown has expired.
+    /// Useful for garbage-collecting stale cooldown files without violating an
+    /// active server-side rate limit.
+    pub fn clear_expired_rate_limit_state(&self) {
+        let still_active = {
+            let limiter = self.rate_limiter.lock();
+            limiter
+                .cooldown_until
+                .map_or(false, |until| until > Instant::now())
+        };
+        if !still_active {
+            self.clear_rate_limit();
+        }
     }
 
     pub fn set_oauth_token(&self, token: OAuthToken) {

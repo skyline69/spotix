@@ -73,8 +73,6 @@ fn main() {
         paginated_limit,
     )
     .install_as_global();
-    WebApi::global().clear_rate_limit_state();
-
     let delegate;
     let launcher;
     if state.config.has_credentials() {
