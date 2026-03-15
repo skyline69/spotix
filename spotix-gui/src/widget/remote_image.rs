@@ -113,11 +113,20 @@ impl<T: Data> Widget<T> for RemoteImage<T> {
             self.fading = false;
             self.location.clone_from(&location);
             self.pending_request = location;
-            if self.pending_request.is_some() {
-                let delay = WebApi::global()
-                    .rate_limit_delay()
-                    .unwrap_or(Duration::from_millis(250));
-                self.request_timer = Some(ctx.request_timer(delay));
+            if let Some(loc) = &self.pending_request {
+                // Fast path: if the image is already in the in-memory cache,
+                // use it immediately -- no timer, no placeholder flash.
+                if let Some(image_buf) = WebApi::global().get_cached_image(loc) {
+                    self.image.replace(WidgetPod::new(
+                        Image::new(image_buf).fill_mode(FillStrat::Cover),
+                    ));
+                    self.pending_request = None;
+                } else {
+                    let delay = WebApi::global()
+                        .rate_limit_delay()
+                        .unwrap_or(Duration::from_millis(250));
+                    self.request_timer = Some(ctx.request_timer(delay));
+                }
             }
         }
         if let Some(image) = self.image.as_mut() {
@@ -129,11 +138,33 @@ impl<T: Data> Widget<T> for RemoteImage<T> {
     fn update(&mut self, ctx: &mut UpdateCtx, _old_data: &T, data: &T, env: &Env) {
         let location = (self.locator)(data, env);
         if location != self.location {
+            self.location.clone_from(&location);
+            self.pending_request = location;
+
+            // Fast path: check in-memory image cache before going through
+            // the timer + delegate round-trip.
+            if let Some(loc) = &self.pending_request
+                && let Some(image_buf) = WebApi::global().get_cached_image(loc)
+            {
+                self.image.replace(WidgetPod::new(
+                    Image::new(image_buf).fill_mode(FillStrat::Cover),
+                ));
+                self.pending_request = None;
+                self.fade_progress = 1.0;
+                self.fading = false;
+                self.request_timer = None;
+                ctx.children_changed();
+                if let Some(image) = self.image.as_mut() {
+                    image.update(ctx, data, env);
+                }
+                self.placeholder.update(ctx, data, env);
+                return;
+            }
+
+            // Slow path: image not cached, show placeholder and start timer.
             self.image = None;
             self.fade_progress = 1.0;
             self.fading = false;
-            self.location.clone_from(&location);
-            self.pending_request = location;
             if self.pending_request.is_some() {
                 let delay = WebApi::global()
                     .rate_limit_delay()
