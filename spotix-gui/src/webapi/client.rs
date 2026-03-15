@@ -1405,12 +1405,13 @@ impl WebApi {
     /// Clears the persisted rate-limit state only if the cooldown has expired.
     /// Useful for garbage-collecting stale cooldown files without violating an
     /// active server-side rate limit.
+    #[allow(dead_code)]
     pub fn clear_expired_rate_limit_state(&self) {
         let still_active = {
             let limiter = self.rate_limiter.lock();
             limiter
                 .cooldown_until
-                .map_or(false, |until| until > Instant::now())
+                .is_some_and(|until| until > Instant::now())
         };
         if !still_active {
             self.clear_rate_limit();

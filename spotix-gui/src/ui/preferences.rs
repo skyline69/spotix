@@ -941,13 +941,13 @@ impl Authenticate {
                         }
                     }
                 }
-                if credentials.is_none() {
-                    if let Some(err) = &last_err {
-                        log::warn!(
-                            "Shannon auth failed after 3 attempts ({err:?}), \
-                             but OAuth token will still be saved for Web API"
-                        );
-                    }
+                if credentials.is_none()
+                    && let Some(err) = &last_err
+                {
+                    log::warn!(
+                        "Shannon auth failed after 3 attempts ({err:?}), \
+                         but OAuth token will still be saved for Web API"
+                    );
                 }
                 Ok(SpotifyAuthResult {
                     credentials,
