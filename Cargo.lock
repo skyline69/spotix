@@ -3315,8 +3315,6 @@ dependencies = [
 [[package]]
 name = "librespot-playback"
 version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88258620bf3e6808ea1fadd11639648d77c06280b9f5a4c9d14ea79f6f998af6"
 dependencies = [
  "cpal",
  "form_urlencoded",
@@ -5108,8 +5106,6 @@ checksum = "10364677556c46b4e9e922360979db311cd0d7e598eaf7861497b56068fdc9e4"
 [[package]]
 name = "rspotify-model"
 version = "0.15.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17695906aa54f120d1e43bcf5e8b19c64b1a9194d446af39e8f486107e7bbc1a"
 dependencies = [
  "chrono",
  "enum_dispatch",
@@ -5690,15 +5686,6 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
-]
-
-[[package]]
-name = "spotix-cli"
-version = "0.1.0"
-dependencies = [
- "env_logger",
- "log",
- "spotix-core",
 ]
 
 [[package]]
