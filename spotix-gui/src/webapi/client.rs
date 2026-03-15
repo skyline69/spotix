@@ -194,6 +194,42 @@ impl WebApi {
         WebApiCache::hash_key(raw)
     }
 
+    /// Choose the right token for the target host.
+    /// Internal/partner Spotify APIs require login5 tokens.
+    /// The standard Web API (api.spotify.com) prefers OAuth PKCE.
+    fn access_token_for_host(&self, host: &str) -> Result<String, Error> {
+        let needs_login5 = host != "api.spotify.com";
+        if needs_login5 {
+            return self.login5_access_token();
+        }
+        self.access_token()
+    }
+
+    /// Get a login5 token, falling back to OAuth if unavailable.
+    fn login5_access_token(&self) -> Result<String, Error> {
+        match self.login5.get_access_token(&self.session) {
+            Ok(token) => {
+                log::debug!("webapi: using login5 access token (internal API)");
+                Ok(token.access_token)
+            }
+            Err(err) => {
+                log::warn!("webapi: login5 token failed for internal API: {err}");
+                // Fall back to OAuth if available
+                if let Ok(Some(token)) = self.oauth_access_token() {
+                    log::debug!("webapi: falling back to oauth for internal API");
+                    Ok(token)
+                } else {
+                    Err(Error::WebApiError(
+                        "Web API authentication failed. Re-authenticate in Preferences."
+                            .to_string(),
+                    ))
+                }
+            }
+        }
+    }
+
+    /// Get an access token for the standard Spotify Web API.
+    /// Prefers OAuth PKCE, falls back to login5.
     fn access_token(&self) -> Result<String, Error> {
         // Try OAuth PKCE first -- standard Web API auth path
         match self.oauth_access_token() {
@@ -263,7 +299,9 @@ impl WebApi {
     }
 
     fn request_raw(&self, request: &RequestBuilder) -> Result<Response<Body>, RequestError> {
-        let token = self.access_token().map_err(RequestError::Auth)?;
+        let token = self
+            .access_token_for_host(&request.base_uri)
+            .map_err(RequestError::Auth)?;
         let url = request.build();
 
         fn configure_request<B>(
