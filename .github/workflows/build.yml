@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, release]
   pull_request:
     branches: [main]
 
@@ -283,7 +283,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/release' && github.event_name == 'push'
     steps:
       - name: Set Version Info and Paths
         id: set_paths
@@ -331,7 +331,7 @@ jobs:
           make_latest: true
           prerelease: false
           body: |
-            This is a rolling release of Spotix, published automatically on every commit to main.
+            This is a rolling release of Spotix, published automatically on every commit to the `release` branch.
 
             Version: ${{ env.RELEASE_VERSION }}
             Commit: ${{ github.sha }}
