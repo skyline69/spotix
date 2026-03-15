@@ -918,27 +918,41 @@ impl Authenticate {
                 let token = oauth::exchange_code_for_token(8888, code, pkce_verifier, &client_id)
                     .map_err(|e| e.to_string())?;
 
-                // Try to authenticate with token, with retries
-                let mut retries = 3;
-                while retries > 0 {
+                // Try to authenticate with token to get Shannon credentials.
+                // Even if this fails, we still return the OAuth token so the
+                // Web API can use it (Shannon is only needed for librespot streaming).
+                let mut credentials = None;
+                let mut last_err = None;
+                for attempt in 0..3 {
                     match Authentication::authenticate_and_get_credentials(SessionConfig {
                         login_creds: Credentials::from_access_token(token.access_token.clone()),
                         ..config.clone()
                     }) {
-                        Ok(credentials) => {
-                            return Ok(SpotifyAuthResult {
-                                credentials,
-                                oauth_token: token,
-                            });
+                        Ok(creds) => {
+                            credentials = Some(creds);
+                            break;
                         }
-                        Err(e) if retries > 1 => {
-                            log::warn!("authentication failed, retrying: {e:?}");
-                            retries -= 1;
+                        Err(e) => {
+                            log::warn!(
+                                "Shannon authentication failed (attempt {}): {e:?}",
+                                attempt + 1
+                            );
+                            last_err = Some(e);
                         }
-                        Err(e) => return Err(e),
                     }
                 }
-                Err("Authentication retries exceeded".to_string())
+                if credentials.is_none() {
+                    if let Some(err) = &last_err {
+                        log::warn!(
+                            "Shannon auth failed after 3 attempts ({err:?}), \
+                             but OAuth token will still be saved for Web API"
+                        );
+                    }
+                }
+                Ok(SpotifyAuthResult {
+                    credentials,
+                    oauth_token: token,
+                })
             },
             Self::SPOTIFY_RESPONSE,
             self.spotify_thread.take(),
@@ -974,7 +988,7 @@ impl Authenticate {
 }
 
 pub(crate) struct SpotifyAuthResult {
-    credentials: Credentials,
+    credentials: Option<Credentials>,
     oauth_token: oauth::OAuthToken,
 }
 
@@ -1059,20 +1073,30 @@ impl<W: Widget<AppState>> Controller<AppState, W> for Authenticate {
                 let result = cmd.get_unchecked(Self::SPOTIFY_RESPONSE);
                 match result {
                     Ok(payload) => {
-                        // Update session config with the new credentials
-                        data.session.update_config(SessionConfig {
-                            login_creds: payload.credentials.clone(),
-                            proxy_url: Config::proxy(),
-                        });
-                        data.config.store_credentials(payload.credentials.clone());
+                        // Always store the OAuth token for Web API access
                         data.config.store_oauth_token(payload.oauth_token.clone());
                         data.config.save();
                         WebApi::global().set_oauth_token(payload.oauth_token.clone());
                         WebApi::global().clear_rate_limit_state();
+
+                        // Update Shannon credentials if available (needed for librespot)
+                        if let Some(credentials) = payload.credentials.clone() {
+                            data.session.update_config(SessionConfig {
+                                login_creds: credentials.clone(),
+                                proxy_url: Config::proxy(),
+                            });
+                            data.config.store_credentials(credentials);
+                            data.config.save();
+                        }
+
                         ctx.submit_command(cmd::NAVIGATE_REFRESH);
                         data.preferences.auth.result.resolve((), ());
-                        // Handle UI flow based on tab type
-                        if matches!(self.tab, AccountTab::FirstSetup) {
+                        // Handle UI flow based on tab type.
+                        // Only proceed to main window if we have credentials
+                        // (either from this auth or from a prior session).
+                        if matches!(self.tab, AccountTab::FirstSetup)
+                            && data.config.has_credentials()
+                        {
                             ctx.submit_command(cmd::CLOSE_ALL_WINDOWS);
                             ctx.submit_command(cmd::SHOW_MAIN);
                         }
