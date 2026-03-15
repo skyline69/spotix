@@ -11,16 +11,16 @@ use crate::{
         Preferences, PreferencesTab, Promise, SliderScrollScale, Theme,
     },
     webapi::WebApi,
-    widget::{Async, Border, Checkbox, MyWidgetExt, icons},
+    widget::{icons, Async, Border, Checkbox, MyWidgetExt},
 };
 use druid::{
-    Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx,
-    RenderContext, Selector, Widget, WidgetExt,
     text::ParseFormatter,
     widget::{
         Button, Controller, CrossAxisAlignment, Flex, Label, LineBreaking, MainAxisAlignment,
         RadioGroup, SizedBox, Slider, TextBox, ViewSwitcher,
     },
+    Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx,
+    RenderContext, Selector, Widget, WidgetExt,
 };
 use log::warn;
 use serde::Deserialize;
@@ -899,7 +899,8 @@ impl Authenticate {
         data.preferences.auth.result.defer_default();
 
         // Generate auth URL and store PKCE verifier
-        let (auth_url, pkce_verifier) = oauth::generate_auth_url(8888);
+        let client_id = WebApi::global().webapi_client_id().to_string();
+        let (auth_url, pkce_verifier) = oauth::generate_auth_url(8888, &client_id);
         let config = data.preferences.auth.session_config(); // Keep config local
 
         // Spawn authentication thread
@@ -914,7 +915,7 @@ impl Authenticate {
                 .map_err(|e| e.to_string())?;
 
                 // Exchange code for access token
-                let token = oauth::exchange_code_for_token(8888, code, pkce_verifier)
+                let token = oauth::exchange_code_for_token(8888, code, pkce_verifier, &client_id)
                     .map_err(|e| e.to_string())?;
 
                 // Try to authenticate with token, with retries

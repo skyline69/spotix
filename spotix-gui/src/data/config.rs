@@ -15,7 +15,7 @@ use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use spotix_core::{
     audio::equalizer::EqConfig,
-    cache::{CacheHandle, mkdir_if_not_exists},
+    cache::{mkdir_if_not_exists, CacheHandle},
     connection::Credentials,
     oauth::OAuthToken,
     player::{PlaybackConfig, PlaybackEngine as CorePlaybackEngine},
@@ -182,6 +182,9 @@ pub struct Config {
     pub lastfm_api_secret: Option<String>,
     pub lastfm_enable: bool,
     pub eq: EqSettings,
+    /// Optional client ID for Spotify Web API requests.
+    /// If unset, falls back to the default Spotify client ID.
+    pub webapi_client_id: Option<String>,
 }
 
 impl Default for Config {
@@ -214,6 +217,7 @@ impl Default for Config {
             lastfm_api_secret: None,
             lastfm_enable: false,
             eq: EqSettings::default(),
+            webapi_client_id: None,
         }
     }
 }
@@ -317,6 +321,12 @@ impl Config {
 
     pub fn store_oauth_token(&mut self, token: OAuthToken) {
         self.oauth_token = Some(token);
+    }
+
+    pub fn effective_webapi_client_id(&self) -> &str {
+        self.webapi_client_id
+            .as_deref()
+            .unwrap_or(spotix_core::session::access_token::CLIENT_ID)
     }
 
     pub fn username(&self) -> Option<&str> {

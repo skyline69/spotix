@@ -71,6 +71,7 @@ fn main() {
         Config::cache_dir(),
         state.config.oauth_token_clone(),
         paginated_limit,
+        config.effective_webapi_client_id().to_string(),
     )
     .install_as_global();
     let delegate;

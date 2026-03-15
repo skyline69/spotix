@@ -40,8 +40,13 @@ impl Default for RSpotifyClient {
 }
 
 impl RSpotifyClient {
-    pub fn new(_proxy_url: Option<&str>) -> Self {
+    pub fn new(_proxy_url: Option<&str>, client_id: Option<&str>) -> Self {
+        let creds = match client_id {
+            Some(id) => Credentials::new_pkce(id),
+            None => Credentials::default(),
+        };
         Self {
+            creds,
             ..Default::default()
         }
     }

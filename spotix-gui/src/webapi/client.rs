@@ -88,6 +88,7 @@ pub struct WebApi {
     paginated_limit: usize,
     rate_limiter: Mutex<RateLimiter>,
     request_gate: RequestGate,
+    webapi_client_id: String,
 }
 
 struct LibrespotState {
@@ -141,6 +142,7 @@ impl WebApi {
         cache_base: Option<PathBuf>,
         oauth_token: Option<OAuthToken>,
         paginated_limit: usize,
+        webapi_client_id: String,
     ) -> Self {
         let mut agent = Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(5)))
@@ -156,7 +158,7 @@ impl WebApi {
             .enable_io()
             .build()
             .expect("Failed to initialize rspotify runtime");
-        let rspotify = RSpotifyClient::new(proxy_url);
+        let rspotify = RSpotifyClient::new(proxy_url, Some(&webapi_client_id));
         Self {
             session,
             agent: agent.build().into(),
@@ -171,6 +173,7 @@ impl WebApi {
             paginated_limit,
             rate_limiter: Mutex::new(rate_limiter),
             request_gate: RequestGate::new(1),
+            webapi_client_id,
         }
     }
 
@@ -194,22 +197,31 @@ impl WebApi {
     }
 
     fn access_token(&self) -> Result<String, Error> {
+        // Try OAuth PKCE first -- standard Web API auth path
+        match self.oauth_access_token() {
+            Ok(Some(token)) => {
+                log::debug!("webapi: using oauth access token");
+                return Ok(token);
+            }
+            Ok(None) => {
+                log::debug!("webapi: no oauth token available, trying login5");
+            }
+            Err(err) => {
+                log::warn!("webapi: oauth token error: {err}, trying login5");
+            }
+        }
+
+        // Fallback to login5
         match self.login5.get_access_token(&self.session) {
             Ok(token) => {
-                log::debug!("webapi: using login5 access token");
+                log::debug!("webapi: using login5 access token (fallback)");
                 Ok(token.access_token)
             }
             Err(err) => {
-                log::warn!("webapi: login5 token failed: {err}");
-                if let Some(token) = self.oauth_access_token()? {
-                    log::debug!("webapi: using oauth access token");
-                    Ok(token)
-                } else {
-                    Err(Error::WebApiError(
-                        "Web API authentication failed. Re-authenticate in Preferences."
-                            .to_string(),
-                    ))
-                }
+                log::warn!("webapi: login5 token also failed: {err}");
+                Err(Error::WebApiError(
+                    "Web API authentication failed. Re-authenticate in Preferences.".to_string(),
+                ))
             }
         }
     }
@@ -226,7 +238,7 @@ impl WebApi {
                 log::warn!("webapi: oauth token expired but no refresh token available");
                 return Ok(None);
             };
-            match oauth::refresh_access_token(&refresh_token) {
+            match oauth::refresh_access_token(&refresh_token, &self.webapi_client_id) {
                 Ok(refreshed) => {
                     log::info!("webapi: refreshed oauth access token");
                     *guard = Some(refreshed.clone());
@@ -621,7 +633,7 @@ impl WebApi {
                 log::warn!("webapi: oauth token expired but no refresh token available");
                 return Ok(None);
             };
-            match oauth::refresh_access_token(&refresh_token) {
+            match oauth::refresh_access_token(&refresh_token, &self.webapi_client_id) {
                 Ok(refreshed) => {
                     log::info!("webapi: refreshed oauth access token");
                     *guard = Some(refreshed.clone());
@@ -728,23 +740,30 @@ impl WebApi {
         const MIN_429_DELAY: Duration = Duration::from_secs(60);
         let _permit = self.request_gate.acquire();
         self.wait_for_rate_limit("api.spotify.com")?;
-        let libre_session = self.ensure_librespot_session()?;
-        let has_token = self.rspotify_rt.block_on(async {
-            if let Some(session) = libre_session {
-                self.rspotify.set_session(session).await;
-            }
-            self.rspotify.ensure_token().await
-        });
+
+        // Try OAuth token first (preferred for Web API)
+        let mut has_token = false;
+        if let Ok(Some(token)) = self.oauth_token_for_rspotify() {
+            self.rspotify_rt
+                .block_on(async { self.rspotify.set_token(token).await });
+            has_token = true;
+        }
+
+        // Fallback to librespot session login5 token
+        if !has_token {
+            let libre_session = self.ensure_librespot_session()?;
+            has_token = self.rspotify_rt.block_on(async {
+                if let Some(session) = libre_session {
+                    self.rspotify.set_session(session).await;
+                }
+                self.rspotify.ensure_token().await
+            });
+        }
 
         if !has_token {
-            if let Some(token) = self.oauth_token_for_rspotify()? {
-                self.rspotify_rt
-                    .block_on(async { self.rspotify.set_token(token).await });
-            } else {
-                return Err(Error::WebApiError(
-                    "Web API authentication failed. Re-authenticate in Preferences.".to_string(),
-                ));
-            }
+            return Err(Error::WebApiError(
+                "Web API authentication failed. Re-authenticate in Preferences.".to_string(),
+            ));
         }
 
         let result = self.rspotify_rt.block_on(async { f().await });
@@ -1400,6 +1419,10 @@ impl WebApi {
 
     pub fn set_oauth_token(&self, token: OAuthToken) {
         *self.oauth_token.lock() = Some(token);
+    }
+
+    pub fn webapi_client_id(&self) -> &str {
+        &self.webapi_client_id
     }
 
     pub fn is_rate_limited(&self) -> bool {

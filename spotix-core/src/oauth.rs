@@ -1,8 +1,8 @@
 use crate::error::Error;
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet, EndpointSet,
-    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, Scope, TokenResponse, TokenUrl,
-    basic::BasicClient, reqwest,
+    basic::BasicClient, reqwest, AuthUrl, AuthorizationCode, ClientId, CsrfToken, EndpointNotSet,
+    EndpointSet, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, Scope,
+    TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -171,22 +171,21 @@ impl OAuthToken {
 
 fn create_spotify_oauth_client(
     redirect_port: u16,
+    client_id: &str,
 ) -> BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet> {
     let redirect_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), redirect_port);
     let redirect_uri = format!("http://{redirect_address}/login");
 
-    BasicClient::new(ClientId::new(
-        crate::session::access_token::CLIENT_ID.to_string(),
-    ))
-    .set_auth_uri(
-        AuthUrl::new("https://accounts.spotify.com/authorize".to_string())
-            .expect("Invalid auth URL"),
-    )
-    .set_token_uri(
-        TokenUrl::new("https://accounts.spotify.com/api/token".to_string())
-            .expect("Invalid token URL"),
-    )
-    .set_redirect_uri(RedirectUrl::new(redirect_uri).expect("Invalid redirect URL"))
+    BasicClient::new(ClientId::new(client_id.to_string()))
+        .set_auth_uri(
+            AuthUrl::new("https://accounts.spotify.com/authorize".to_string())
+                .expect("Invalid auth URL"),
+        )
+        .set_token_uri(
+            TokenUrl::new("https://accounts.spotify.com/api/token".to_string())
+                .expect("Invalid token URL"),
+        )
+        .set_redirect_uri(RedirectUrl::new(redirect_uri).expect("Invalid redirect URL"))
 }
 
 fn build_oauth_token(
@@ -206,8 +205,8 @@ fn build_oauth_token(
     }
 }
 
-pub fn generate_auth_url(redirect_port: u16) -> (String, PkceCodeVerifier) {
-    let client = create_spotify_oauth_client(redirect_port);
+pub fn generate_auth_url(redirect_port: u16, client_id: &str) -> (String, PkceCodeVerifier) {
+    let client = create_spotify_oauth_client(redirect_port, client_id);
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
 
     let (auth_url, _) = client
@@ -223,8 +222,9 @@ pub fn exchange_code_for_token(
     redirect_port: u16,
     code: AuthorizationCode,
     pkce_verifier: PkceCodeVerifier,
+    client_id: &str,
 ) -> Result<OAuthToken, Error> {
-    let client = create_spotify_oauth_client(redirect_port);
+    let client = create_spotify_oauth_client(redirect_port, client_id);
 
     let http_client = reqwest::blocking::ClientBuilder::new()
         .redirect(reqwest::redirect::Policy::none())
@@ -249,8 +249,8 @@ pub fn exchange_code_for_token(
     ))
 }
 
-pub fn refresh_access_token(refresh_token: &str) -> Result<OAuthToken, Error> {
-    let client = create_spotify_oauth_client(8888);
+pub fn refresh_access_token(refresh_token: &str, client_id: &str) -> Result<OAuthToken, Error> {
+    let client = create_spotify_oauth_client(8888, client_id);
     let http_client = reqwest::blocking::ClientBuilder::new()
         .redirect(reqwest::redirect::Policy::none())
         .build()
