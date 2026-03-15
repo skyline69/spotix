@@ -10,7 +10,6 @@ pub struct ArtistDetail {
     pub artist: Promise<Artist, ArtistLink>,
     pub albums: Promise<ArtistAlbums, ArtistLink>,
     pub top_tracks: Promise<ArtistTracks, ArtistLink>,
-    pub related_artists: Promise<Cached<Vector<Artist>>, ArtistLink>,
     pub artist_info: Promise<Cached<ArtistInfo>, ArtistLink>,
 }
 

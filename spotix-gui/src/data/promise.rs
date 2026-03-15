@@ -48,13 +48,6 @@ impl<T: Data, D: Data, E: Data> Promise<T, D, E> {
         matches!(self, Self::Deferred { def } if def == d)
     }
 
-    pub fn contains(&self, d: &D) -> bool
-    where
-        D: PartialEq,
-    {
-        matches!(self, Self::Resolved { def, .. } if def == d)
-    }
-
     pub fn deferred(&self) -> Option<&D> {
         match self {
             Promise::Deferred { def }

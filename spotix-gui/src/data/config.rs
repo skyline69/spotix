@@ -11,12 +11,14 @@ use std::os::unix::fs::OpenOptionsExt;
 
 use druid::{Data, Lens, Size};
 use platform_dirs::AppDirs;
+use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use spotix_core::{
     audio::equalizer::EqConfig,
     cache::{CacheHandle, mkdir_if_not_exists},
     connection::Credentials,
-    player::PlaybackConfig,
+    oauth::OAuthToken,
+    player::{PlaybackConfig, PlaybackEngine as CorePlaybackEngine},
     session::{SessionConfig, SessionConnection},
 };
 
@@ -152,7 +154,11 @@ const PROXY_ENV_VAR: &str = "SOCKS_PROXY";
 pub struct Config {
     #[data(ignore)]
     credentials: Option<Credentials>,
+    #[data(ignore)]
+    oauth_token: Option<OAuthToken>,
+    pub device_id: Option<String>,
     pub audio_quality: AudioQuality,
+    pub playback_engine: PlaybackEngine,
     pub theme: Theme,
     pub volume: f64,
     pub last_route: Option<Nav>,
@@ -182,7 +188,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             credentials: Default::default(),
+            oauth_token: Default::default(),
+            device_id: None,
             audio_quality: Default::default(),
+            playback_engine: PlaybackEngine::default(),
             theme: Default::default(),
             volume: 1.0,
             last_route: Default::default(),
@@ -279,8 +288,35 @@ impl Config {
         self.credentials = Some(credentials);
     }
 
+    pub fn credentials_clone(&self) -> Option<Credentials> {
+        self.credentials.clone()
+    }
+
     pub fn clear_credentials(&mut self) {
         self.credentials = Default::default();
+        self.oauth_token = Default::default();
+    }
+
+    pub fn ensure_device_id(&mut self) -> String {
+        if let Some(id) = self.device_id.clone() {
+            return id;
+        }
+        let mut bytes = [0u8; 16];
+        rand::rng().fill_bytes(&mut bytes);
+        let mut id = String::with_capacity(32);
+        for b in bytes {
+            id.push_str(&format!("{b:02x}"));
+        }
+        self.device_id = Some(id.clone());
+        id
+    }
+
+    pub fn oauth_token_clone(&self) -> Option<OAuthToken> {
+        self.oauth_token.clone()
+    }
+
+    pub fn store_oauth_token(&mut self, token: OAuthToken) {
+        self.oauth_token = Some(token);
     }
 
     pub fn username(&self) -> Option<&str> {
@@ -307,6 +343,11 @@ impl Config {
             crossfade_duration: Duration::from_secs_f64(self.crossfade_duration_secs.max(0.0)),
             mono_audio: self.mono_audio,
             eq: self.eq.to_core(),
+            normalization_enabled: self.normalization_enabled,
+            engine: match self.playback_engine {
+                PlaybackEngine::Librespot => CorePlaybackEngine::Librespot,
+                PlaybackEngine::Native => CorePlaybackEngine::Native,
+            },
             ..PlaybackConfig::default()
         }
     }
@@ -331,6 +372,13 @@ pub enum AudioQuality {
     Normal,
     #[default]
     High,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Data, Serialize, Deserialize, Default)]
+pub enum PlaybackEngine {
+    Native,
+    #[default]
+    Librespot,
 }
 
 impl AudioQuality {

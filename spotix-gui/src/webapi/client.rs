@@ -1,11 +1,12 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Display,
+    future::Future,
     io::{self, Read},
     path::PathBuf,
     sync::Arc,
     thread,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use druid::{
@@ -14,16 +15,32 @@ use druid::{
     image::{self, ImageFormat},
 };
 
+use chrono::{Duration as ChronoDuration, Utc};
 use itertools::Itertools;
+use librespot_core::{
+    Session as LibrespotSession, authentication::Credentials as LibrespotCredentials,
+    config::SessionConfig as LibrespotSessionConfig,
+};
 use log::info;
-use parking_lot::Mutex;
-use serde::{Deserialize, de::DeserializeOwned};
+use parking_lot::{Condvar, Mutex};
+use rspotify::clients::{BaseClient, OAuthClient};
+use rspotify::model::{
+    AlbumType as RSpotifyAlbumType, ArtistId, Market, PlayableItem, PlaylistId, SearchType,
+    TimeRange,
+};
+use rspotify::prelude::Id;
+use rspotify::{ClientError, Token as RSpotifyToken};
+use rspotify_http::HttpError as RSpotifyHttpError;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 use spotix_core::{
+    oauth::{self, OAuthToken},
+    session::client_token::ClientTokenProvider,
     session::{SessionService, login5::Login5},
     system_info::{OS, SPOTIFY_SEMANTIC_VERSION},
 };
 use std::sync::OnceLock;
+use time::{Date, Month};
 use ureq::{
     Agent, Body,
     http::{Response, StatusCode},
@@ -41,6 +58,7 @@ use crate::{
     ui::credits::TrackCredits,
 };
 
+use super::rspotify_client::RSpotifyClient;
 use super::{cache::WebApiCache, local::LocalTrackManager};
 use sanitize_html::{rules::predefined::DEFAULT, sanitize_str};
 
@@ -61,8 +79,59 @@ pub struct WebApi {
     agent: Agent,
     cache: WebApiCache,
     login5: Login5,
+    oauth_token: Mutex<Option<OAuthToken>>,
+    client_token_provider: ClientTokenProvider,
+    librespot_state: Mutex<Option<LibrespotState>>,
+    rspotify: RSpotifyClient,
+    rspotify_rt: tokio::runtime::Runtime,
     local_track_manager: Mutex<LocalTrackManager>,
     paginated_limit: usize,
+    rate_limiter: Mutex<RateLimiter>,
+    request_gate: RequestGate,
+}
+
+struct LibrespotState {
+    session: LibrespotSession,
+    connected: bool,
+}
+
+struct RateLimiter {
+    next_allowed: Instant,
+    cooldown_until: Option<Instant>,
+    cooldown_until_wall: Option<SystemTime>,
+    consecutive_429: u32,
+}
+
+struct RequestGate {
+    state: Mutex<RequestGateState>,
+    waiters: Condvar,
+    max_in_flight: usize,
+}
+
+struct RequestGateState {
+    in_flight: usize,
+}
+
+struct RequestPermit<'a> {
+    gate: &'a RequestGate,
+}
+
+impl RateLimiter {
+    fn from_cache(cache: &WebApiCache) -> Self {
+        let mut limiter = Self {
+            next_allowed: Instant::now(),
+            cooldown_until: None,
+            cooldown_until_wall: None,
+            consecutive_429: 0,
+        };
+        if let Some(until_wall) = WebApi::load_persisted_cooldown(cache) {
+            if let Ok(remaining) = until_wall.duration_since(SystemTime::now()) {
+                limiter.cooldown_until = Some(Instant::now() + remaining);
+                limiter.cooldown_until_wall = Some(until_wall);
+            }
+        }
+        limiter
+    }
 }
 
 impl WebApi {
@@ -70,20 +139,38 @@ impl WebApi {
         session: SessionService,
         proxy_url: Option<&str>,
         cache_base: Option<PathBuf>,
+        oauth_token: Option<OAuthToken>,
         paginated_limit: usize,
     ) -> Self {
-        let mut agent = Agent::config_builder().timeout_global(Some(Duration::from_secs(5)));
+        let mut agent = Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(5)))
+            .http_status_as_error(false);
         if let Some(proxy_url) = proxy_url {
             let proxy = ureq::Proxy::new(proxy_url).ok();
             agent = agent.proxy(proxy);
         }
+        let cache = WebApiCache::new(cache_base);
+        let rate_limiter = RateLimiter::from_cache(&cache);
+        let rspotify_rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
+            .build()
+            .expect("Failed to initialize rspotify runtime");
+        let rspotify = RSpotifyClient::new(proxy_url);
         Self {
             session,
             agent: agent.build().into(),
-            cache: WebApiCache::new(cache_base),
+            cache,
             login5: Login5::new(None, proxy_url),
+            oauth_token: Mutex::new(oauth_token),
+            client_token_provider: ClientTokenProvider::new(proxy_url),
+            librespot_state: Mutex::new(None),
+            rspotify,
+            rspotify_rt,
             local_track_manager: Mutex::new(LocalTrackManager::new()),
             paginated_limit,
+            rate_limiter: Mutex::new(rate_limiter),
+            request_gate: RequestGate::new(1),
         }
     }
 
@@ -107,14 +194,62 @@ impl WebApi {
     }
 
     fn access_token(&self) -> Result<String, Error> {
-        self.login5
-            .get_access_token(&self.session)
-            .map_err(|err| Error::WebApiError(err.to_string()))
-            .map(|t| t.access_token)
+        match self.login5.get_access_token(&self.session) {
+            Ok(token) => {
+                log::debug!("webapi: using login5 access token");
+                Ok(token.access_token)
+            }
+            Err(err) => {
+                log::warn!("webapi: login5 token failed: {err}");
+                if let Some(token) = self.oauth_access_token()? {
+                    log::debug!("webapi: using oauth access token");
+                    Ok(token)
+                } else {
+                    Err(Error::WebApiError(
+                        "Web API authentication failed. Re-authenticate in Preferences."
+                            .to_string(),
+                    ))
+                }
+            }
+        }
+    }
+
+    fn oauth_access_token(&self) -> Result<Option<String>, Error> {
+        const EXPIRY_BUFFER: Duration = Duration::from_secs(120);
+        let mut guard = self.oauth_token.lock();
+        let Some(token) = guard.as_mut() else {
+            return Ok(None);
+        };
+
+        if token.is_expired(EXPIRY_BUFFER) {
+            let Some(refresh_token) = token.refresh_token.clone() else {
+                log::warn!("webapi: oauth token expired but no refresh token available");
+                return Ok(None);
+            };
+            match oauth::refresh_access_token(&refresh_token) {
+                Ok(refreshed) => {
+                    log::info!("webapi: refreshed oauth access token");
+                    *guard = Some(refreshed.clone());
+                    return Ok(Some(refreshed.access_token));
+                }
+                Err(err) => {
+                    let message = err.to_string();
+                    log::warn!("webapi: oauth refresh failed: {message}");
+                    if message.contains("invalid_grant") {
+                        *guard = None;
+                        log::warn!("webapi: oauth token revoked, clearing stored token");
+                    }
+                    return Ok(None);
+                }
+            }
+        }
+
+        Ok(Some(token.access_token.clone()))
     }
 
     fn request(&self, request: &RequestBuilder) -> Result<Response<Body>, Error> {
-        Self::with_retry(|| self.request_raw(request))
+        let _permit = self.request_gate.acquire();
+        self.with_retry(request, || self.request_raw(request))
     }
 
     fn request_raw(&self, request: &RequestBuilder) -> Result<Response<Body>, RequestError> {
@@ -126,58 +261,90 @@ impl WebApi {
             token: &str,
             headers: &HashMap<String, String>,
         ) -> ureq::RequestBuilder<B> {
-            headers.iter().fold(
-                req_builder.header("Authorization", &format!("Bearer {token}")),
-                |current_req, (k, v)| current_req.header(k, v),
-            )
+            let mut builder = req_builder.header("Authorization", &format!("Bearer {token}"));
+            if !headers.contains_key("User-Agent") && !headers.contains_key("user-agent") {
+                builder = builder.header("User-Agent", WebApi::user_agent());
+            }
+            headers
+                .iter()
+                .fold(builder, |current_req, (k, v)| current_req.header(k, v))
         }
 
+        let mut headers = request.get_headers().clone();
+        if request.base_uri == "api.spotify.com" {
+            headers.insert("app-platform".to_string(), "WebPlayer".to_string());
+            match self.client_token_provider.get() {
+                Ok(client_token) => {
+                    headers.insert("client-token".to_string(), client_token);
+                    log::debug!("webapi: attached client-token header");
+                }
+                Err(err) => {
+                    log::warn!("webapi: failed to get client token: {err}");
+                }
+            }
+        }
         match request.get_method() {
-            Method::Get => configure_request(self.agent.get(&url), &token, request.get_headers())
+            Method::Get => configure_request(self.agent.get(&url), &token, &headers)
                 .call()
                 .map_err(RequestError::Transport),
-            Method::Post => configure_request(self.agent.post(&url), &token, request.get_headers())
+            Method::Post => configure_request(self.agent.post(&url), &token, &headers)
                 .send_json(request.get_body())
                 .map_err(RequestError::Transport),
-            Method::Put => configure_request(self.agent.put(&url), &token, request.get_headers())
+            Method::Put => configure_request(self.agent.put(&url), &token, &headers)
                 .send_json(request.get_body())
                 .map_err(RequestError::Transport),
-            Method::Delete => {
-                configure_request(self.agent.delete(&url), &token, request.get_headers())
-                    .force_send_body()
-                    .send_json(request.get_body())
-                    .map_err(RequestError::Transport)
-            }
+            Method::Delete => configure_request(self.agent.delete(&url), &token, &headers)
+                .force_send_body()
+                .send_json(request.get_body())
+                .map_err(RequestError::Transport),
         }
     }
 
     fn with_retry(
+        &self,
+        request: &RequestBuilder,
         f: impl Fn() -> Result<Response<Body>, RequestError>,
     ) -> Result<Response<Body>, Error> {
-        const MAX_ATTEMPTS: u8 = 3;
-        const BASE_BACKOFF: Duration = Duration::from_millis(250);
-        const MAX_BACKOFF: Duration = Duration::from_secs(2);
+        const MAX_ATTEMPTS: u8 = 5;
+        const BASE_BACKOFF: Duration = Duration::from_millis(500);
+        const MAX_BACKOFF: Duration = Duration::from_secs(10);
+        const MIN_429_DELAY: Duration = Duration::from_secs(60);
         let mut attempts = 0;
         let mut backoff = BASE_BACKOFF;
 
         loop {
+            self.wait_for_rate_limit(request.base_uri.as_str())?;
             match f() {
                 Ok(response) => match response.status() {
                     StatusCode::TOO_MANY_REQUESTS => {
-                        if attempts >= MAX_ATTEMPTS {
-                            break Err(Error::WebApiError(
-                                "request throttled (HTTP 429)".to_string(),
-                            ));
-                        }
-                        let retry_after_secs = response
+                        let retry_after_header = response
                             .headers()
                             .get("Retry-After")
-                            .and_then(|secs| secs.to_str().ok());
-                        let response_delay =
-                            retry_after_secs.unwrap_or("2").parse::<u64>().unwrap_or(2);
-                        thread::sleep(Duration::from_secs(response_delay));
-                        attempts += 1;
-                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                            .and_then(|secs| secs.to_str().ok())
+                            .map(str::to_string);
+                        if let Some(ref value) = retry_after_header {
+                            log::warn!("webapi: 429 Retry-After header = {value}");
+                        } else {
+                            log::warn!("webapi: 429 without Retry-After header");
+                        }
+                        log::warn!(
+                            "webapi: 429 on {:?} {}",
+                            request.get_method(),
+                            request.build()
+                        );
+                        let retry_after_secs = retry_after_header
+                            .as_deref()
+                            .and_then(|secs| secs.parse::<u64>().ok());
+                        let response_delay = self
+                            .register_429(retry_after_secs.map(Duration::from_secs), MIN_429_DELAY);
+                        if attempts < MAX_ATTEMPTS {
+                            attempts += 1;
+                            continue;
+                        }
+                        break Err(Error::WebApiError(format!(
+                            "rate limited (HTTP 429), retry in {}s",
+                            response_delay.as_secs()
+                        )));
                     }
                     StatusCode::REQUEST_TIMEOUT | StatusCode::GATEWAY_TIMEOUT => {
                         if attempts >= MAX_ATTEMPTS {
@@ -189,10 +356,32 @@ impl WebApi {
                         attempts += 1;
                         backoff = (backoff * 2).min(MAX_BACKOFF);
                     }
-                    _ => break Ok(response),
+                    status if status.is_client_error() || status.is_server_error() => {
+                        break Err(Error::WebApiError(format!(
+                            "https status: {}",
+                            status.as_u16()
+                        )));
+                    }
+                    _ => {
+                        self.clear_rate_limit();
+                        break Ok(response);
+                    }
                 },
                 Err(RequestError::Auth(err)) => break Err(err),
                 Err(RequestError::Transport(err)) => {
+                    if let ureq::Error::StatusCode(code) = &err {
+                        if *code == 429 {
+                            let response_delay = self.register_429(None, MIN_429_DELAY);
+                            if attempts < MAX_ATTEMPTS {
+                                attempts += 1;
+                                continue;
+                            }
+                            break Err(Error::WebApiError(format!(
+                                "rate limited (HTTP 429), retry in {}s",
+                                response_delay.as_secs()
+                            )));
+                        }
+                    }
                     let should_retry = Self::is_retryable_error(&err);
                     if should_retry && attempts < MAX_ATTEMPTS {
                         thread::sleep(backoff);
@@ -223,6 +412,102 @@ impl WebApi {
             ureq::Error::StatusCode(code) => matches!(*code, 408 | 429 | 504),
             _ => false,
         }
+    }
+
+    fn wait_for_rate_limit(&self, _base_uri: &str) -> Result<(), Error> {
+        const MIN_API_INTERVAL: Duration = Duration::from_millis(900);
+        let mut delay = None;
+        {
+            let mut limiter = self.rate_limiter.lock();
+            let now = Instant::now();
+            if let Some(until) = limiter.cooldown_until {
+                if until > now {
+                    delay = Some(until - now);
+                } else {
+                    limiter.cooldown_until = None;
+                }
+            }
+            if delay.is_none() {
+                if let Some(until_wall) = limiter.cooldown_until_wall {
+                    if let Ok(remaining) = until_wall.duration_since(SystemTime::now()) {
+                        delay = Some(remaining);
+                    } else {
+                        limiter.cooldown_until_wall = None;
+                    }
+                }
+            }
+            if delay.is_none() {
+                if limiter.next_allowed <= now {
+                    limiter.next_allowed = now + MIN_API_INTERVAL;
+                } else {
+                    delay = Some(limiter.next_allowed - now);
+                    limiter.next_allowed += MIN_API_INTERVAL;
+                }
+            }
+        }
+        if let Some(delay) = delay {
+            log::warn!("webapi: blocked by cooldown, retry in {}s", delay.as_secs());
+            thread::sleep(delay);
+            return Ok(());
+        }
+        Ok(())
+    }
+
+    fn register_429(&self, retry_after: Option<Duration>, min_delay: Duration) -> Duration {
+        const MAX_DELAY_SECS: u64 = 60 * 60;
+        let mut limiter = self.rate_limiter.lock();
+        limiter.consecutive_429 = limiter.consecutive_429.saturating_add(1);
+        let exp = (limiter.consecutive_429.saturating_sub(1)).min(6);
+        let base_secs = min_delay.as_secs().max(60);
+        let mut delay_secs = base_secs.saturating_mul(1u64 << exp);
+        if let Some(retry) = retry_after {
+            delay_secs = delay_secs.max(retry.as_secs());
+        }
+        delay_secs = delay_secs.min(MAX_DELAY_SECS);
+        let delay = Duration::from_secs(delay_secs);
+        let target = Instant::now() + delay;
+        if limiter.next_allowed < target {
+            limiter.next_allowed = target;
+        }
+        limiter.cooldown_until = Some(target);
+        let wall_target = SystemTime::now() + delay;
+        limiter.cooldown_until_wall = Some(wall_target);
+        Self::persist_cooldown(&self.cache, wall_target);
+        log::warn!(
+            "webapi: HTTP 429 cooldown {}s (consecutive={})",
+            delay_secs,
+            limiter.consecutive_429
+        );
+        delay
+    }
+
+    fn clear_rate_limit(&self) {
+        let mut limiter = self.rate_limiter.lock();
+        limiter.consecutive_429 = 0;
+        limiter.cooldown_until = None;
+        limiter.cooldown_until_wall = None;
+        Self::clear_persisted_cooldown(&self.cache);
+    }
+
+    fn persist_cooldown(cache: &WebApiCache, until: SystemTime) {
+        let Ok(secs) = until.duration_since(SystemTime::UNIX_EPOCH) else {
+            return;
+        };
+        let payload = json!({ "until_unix": secs.as_secs() });
+        if let Ok(bytes) = serde_json::to_vec(&payload) {
+            cache.set("rate-limit", "cooldown.json", &bytes);
+        }
+    }
+
+    fn clear_persisted_cooldown(cache: &WebApiCache) {
+        cache.remove("rate-limit", "cooldown.json");
+    }
+
+    fn load_persisted_cooldown(cache: &WebApiCache) -> Option<SystemTime> {
+        let file = cache.get("rate-limit", "cooldown.json")?;
+        let payload: serde_json::Value = serde_json::from_reader(file).ok()?;
+        let secs = payload.get("until_unix")?.as_u64()?;
+        Some(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
     }
 
     /// Send a request with an empty JSON object, throw away the response body.
@@ -283,6 +568,352 @@ impl WebApi {
         }
     }
 
+    fn load_cached_value_rspotify<T: DeserializeOwned + Serialize>(
+        &self,
+        bucket: &str,
+        key: &str,
+        policy: CachePolicy,
+        fetch: impl FnOnce() -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        if matches!(policy, CachePolicy::Use)
+            && let Some(file) = self.cache.get(bucket, key)
+        {
+            match serde_json::from_reader(file) {
+                Ok(value) => return Ok(value),
+                Err(err) => {
+                    log::warn!("webapi: invalid cache entry for {bucket}/{key}, refetching: {err}");
+                    self.cache.remove(bucket, key);
+                }
+            }
+        }
+
+        let value = fetch()?;
+        if let Ok(bytes) = serde_json::to_vec(&value) {
+            self.cache.set(bucket, key, &bytes);
+        }
+        Ok(value)
+    }
+
+    fn rspotify_to<T: DeserializeOwned, U: Serialize>(&self, value: &U) -> Result<T, Error> {
+        let json = serde_json::to_value(value)?;
+        Ok(serde_json::from_value(json)?)
+    }
+
+    fn rspotify_vec<T: DeserializeOwned + Clone, U: Serialize>(
+        &self,
+        items: impl IntoIterator<Item = U>,
+    ) -> Vector<T> {
+        items
+            .into_iter()
+            .filter_map(|item| self.rspotify_to(&item).ok())
+            .collect()
+    }
+
+    fn oauth_token_for_rspotify(&self) -> Result<Option<RSpotifyToken>, Error> {
+        const EXPIRY_BUFFER: Duration = Duration::from_secs(120);
+        let mut guard = self.oauth_token.lock();
+        let Some(token) = guard.as_mut() else {
+            return Ok(None);
+        };
+
+        if token.is_expired(EXPIRY_BUFFER) {
+            let Some(refresh_token) = token.refresh_token.clone() else {
+                log::warn!("webapi: oauth token expired but no refresh token available");
+                return Ok(None);
+            };
+            match oauth::refresh_access_token(&refresh_token) {
+                Ok(refreshed) => {
+                    log::info!("webapi: refreshed oauth access token");
+                    *guard = Some(refreshed.clone());
+                }
+                Err(err) => {
+                    let message = err.to_string();
+                    log::warn!("webapi: oauth refresh failed: {message}");
+                    if message.contains("invalid_grant") {
+                        *guard = None;
+                        log::warn!("webapi: oauth token revoked, clearing stored token");
+                    }
+                    return Ok(None);
+                }
+            }
+        }
+
+        let token = guard.as_ref().expect("oauth token must exist");
+        let now_unix = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs())
+            .unwrap_or_default();
+        let expires_in_secs = token
+            .expires_at_unix
+            .and_then(|expires_at| expires_at.checked_sub(now_unix))
+            .unwrap_or(3600);
+        let expires_in = ChronoDuration::from_std(Duration::from_secs(expires_in_secs))
+            .unwrap_or_else(|_| ChronoDuration::seconds(3600));
+        let expires_at = Some(Utc::now() + expires_in);
+
+        Ok(Some(RSpotifyToken {
+            access_token: token.access_token.clone(),
+            expires_in,
+            expires_at,
+            refresh_token: token.refresh_token.clone(),
+            scopes: HashSet::new(),
+        }))
+    }
+
+    fn ensure_librespot_session(&self) -> Result<Option<LibrespotSession>, Error> {
+        let creds = match self.session.credentials() {
+            Some(creds) => creds,
+            None => return Ok(None),
+        };
+
+        let libre_creds = LibrespotCredentials {
+            username: creds.username.clone(),
+            auth_type: creds.auth_type,
+            auth_data: creds.auth_data.clone(),
+        };
+
+        let session = {
+            let mut guard = self.librespot_state.lock();
+            let needs_new = match guard.as_ref() {
+                Some(state) => state.session.is_invalid(),
+                None => true,
+            };
+
+            if needs_new {
+                let session = {
+                    let _guard = self.rspotify_rt.enter();
+                    LibrespotSession::new(LibrespotSessionConfig::default(), None)
+                };
+                *guard = Some(LibrespotState {
+                    session: session.clone(),
+                    connected: false,
+                });
+            }
+
+            guard
+                .as_ref()
+                .expect("librespot session must be present")
+                .session
+                .clone()
+        };
+
+        let connected = self
+            .librespot_state
+            .lock()
+            .as_ref()
+            .map(|state| state.connected)
+            .unwrap_or(false);
+
+        if !connected {
+            let connect_result = self
+                .rspotify_rt
+                .block_on(session.connect(libre_creds, true));
+            if let Err(err) = connect_result {
+                log::warn!("webapi: librespot session connect failed: {err}");
+                return Ok(None);
+            }
+            if let Some(state) = self.librespot_state.lock().as_mut() {
+                state.connected = true;
+            }
+        }
+
+        Ok(Some(session))
+    }
+
+    fn rspotify_call<T, F>(&self, f: impl FnOnce() -> F) -> Result<T, Error>
+    where
+        F: Future<Output = rspotify::ClientResult<T>>,
+    {
+        const MIN_429_DELAY: Duration = Duration::from_secs(60);
+        let _permit = self.request_gate.acquire();
+        self.wait_for_rate_limit("api.spotify.com")?;
+        let libre_session = self.ensure_librespot_session()?;
+        let has_token = self.rspotify_rt.block_on(async {
+            if let Some(session) = libre_session {
+                self.rspotify.set_session(session).await;
+            }
+            self.rspotify.ensure_token().await
+        });
+
+        if !has_token {
+            if let Some(token) = self.oauth_token_for_rspotify()? {
+                self.rspotify_rt
+                    .block_on(async { self.rspotify.set_token(token).await });
+            } else {
+                return Err(Error::WebApiError(
+                    "Web API authentication failed. Re-authenticate in Preferences.".to_string(),
+                ));
+            }
+        }
+
+        let result = self.rspotify_rt.block_on(async { f().await });
+
+        match result {
+            Ok(value) => {
+                self.clear_rate_limit();
+                Ok(value)
+            }
+            Err(err) => {
+                if let ClientError::Http(http_err) = &err {
+                    if let RSpotifyHttpError::StatusCode(resp) = http_err.as_ref() {
+                        if resp.status().as_u16() == 429 {
+                            let retry_after = resp
+                                .headers()
+                                .get("Retry-After")
+                                .and_then(|value| value.to_str().ok())
+                                .and_then(|value| value.parse::<u64>().ok())
+                                .map(Duration::from_secs);
+                            let delay = self.register_429(retry_after, MIN_429_DELAY);
+                            log::warn!("webapi: HTTP 429 cooldown {}s (rspotify)", delay.as_secs());
+                        }
+                    }
+                }
+                Err(Error::WebApiError(err.to_string()))
+            }
+        }
+    }
+
+    fn artist_from_full(&self, artist: rspotify::model::FullArtist) -> Artist {
+        Artist {
+            id: Arc::from(artist.id.id()),
+            name: Arc::from(artist.name),
+            images: artist
+                .images
+                .into_iter()
+                .map(|image| Image {
+                    url: Arc::from(image.url),
+                    width: image.width.map(|width| width as usize),
+                    height: image.height.map(|height| height as usize),
+                })
+                .collect(),
+        }
+    }
+
+    fn artist_links_from_simplified(
+        &self,
+        artists: Vec<rspotify::model::SimplifiedArtist>,
+    ) -> Vector<ArtistLink> {
+        artists
+            .into_iter()
+            .filter_map(|artist| {
+                let id = artist.id?;
+                Some(ArtistLink {
+                    id: Arc::from(id.id()),
+                    name: Arc::from(artist.name),
+                })
+            })
+            .collect()
+    }
+
+    fn images_from_rspotify(&self, images: Vec<rspotify::model::Image>) -> Vector<Image> {
+        images
+            .into_iter()
+            .map(|image| Image {
+                url: Arc::from(image.url),
+                width: image.width.map(|width| width as usize),
+                height: image.height.map(|height| height as usize),
+            })
+            .collect()
+    }
+
+    fn public_user_from_rspotify(&self, user: rspotify::model::PublicUser) -> PublicUser {
+        PublicUser {
+            id: Arc::from(user.id.id()),
+            display_name: Arc::from(user.display_name.unwrap_or_default()),
+        }
+    }
+
+    fn user_profile_from_rspotify(&self, user: rspotify::model::PrivateUser) -> UserProfile {
+        UserProfile {
+            display_name: Arc::from(user.display_name.unwrap_or_default()),
+            email: Arc::from(user.email.unwrap_or_default()),
+            id: Arc::from(user.id.id()),
+        }
+    }
+
+    fn playlist_from_simplified(&self, playlist: rspotify::model::SimplifiedPlaylist) -> Playlist {
+        Playlist {
+            id: Arc::from(playlist.id.id()),
+            name: Arc::from(playlist.name),
+            images: Some(self.images_from_rspotify(playlist.images)),
+            description: Arc::from(""),
+            track_count: Some(playlist.tracks.total as usize),
+            owner: self.public_user_from_rspotify(playlist.owner),
+            collaborative: playlist.collaborative,
+            public: playlist.public,
+        }
+    }
+
+    fn playlist_from_full(&self, playlist: rspotify::model::FullPlaylist) -> Playlist {
+        Playlist {
+            id: Arc::from(playlist.id.id()),
+            name: Arc::from(playlist.name),
+            images: Some(self.images_from_rspotify(playlist.images)),
+            description: sanitize_html_string(playlist.description.as_deref().unwrap_or_default()),
+            track_count: Some(playlist.tracks.total as usize),
+            owner: self.public_user_from_rspotify(playlist.owner),
+            collaborative: playlist.collaborative,
+            public: playlist.public,
+        }
+    }
+
+    fn album_type_from_meta(&self, album: &rspotify::model::SimplifiedAlbum) -> AlbumType {
+        let group = album
+            .album_group
+            .as_deref()
+            .or_else(|| album.album_type.as_deref());
+        match group {
+            Some("single") => AlbumType::Single,
+            Some("compilation") => AlbumType::Compilation,
+            Some("appears_on") => AlbumType::AppearsOn,
+            _ => AlbumType::Album,
+        }
+    }
+
+    fn parse_release_date(&self, raw: Option<&str>) -> Option<Date> {
+        let raw = raw?;
+        let mut parts = raw.splitn(3, '-');
+        let year = parts.next()?.parse::<i32>().ok()?;
+        let month = parts
+            .next()
+            .and_then(|part| part.parse::<u8>().ok())
+            .unwrap_or(1);
+        let day = parts
+            .next()
+            .and_then(|part| part.parse::<u8>().ok())
+            .unwrap_or(1);
+        let month = Month::try_from(month).ok()?;
+        Date::from_calendar_date(year, month, day).ok()
+    }
+
+    fn album_from_simplified(&self, album: rspotify::model::SimplifiedAlbum) -> Option<Album> {
+        let id = album.id.as_ref()?.id().to_string();
+        let album_type = self.album_type_from_meta(&album);
+        let release_date = self.parse_release_date(album.release_date.as_deref());
+        let name = album.name;
+        Some(Album {
+            id: Arc::from(id),
+            name: Arc::from(name),
+            album_type,
+            images: album
+                .images
+                .into_iter()
+                .map(|image| Image {
+                    url: Arc::from(image.url),
+                    width: image.width.map(|width| width as usize),
+                    height: image.height.map(|height| height as usize),
+                })
+                .collect(),
+            artists: self.artist_links_from_simplified(album.artists),
+            copyrights: Vector::new(),
+            label: "".into(),
+            tracks: Vector::new(),
+            release_date,
+            release_date_precision: None,
+        })
+    }
+
     fn for_all_pages_cached<T: DeserializeOwned + Clone>(
         &self,
         request: &RequestBuilder,
@@ -315,49 +946,6 @@ impl WebApi {
         }
     }
 
-    fn for_some_pages_cached<T: DeserializeOwned + Clone>(
-        &self,
-        request: &RequestBuilder,
-        lim: usize,
-        bucket: &str,
-        key: &str,
-        policy: CachePolicy,
-        mut func: impl FnMut(Page<T>) -> Result<(), Error>,
-    ) -> Result<(), Error> {
-        let mut limit = 50;
-        let mut offset = 0;
-        if lim < limit {
-            limit = lim;
-            let req = request
-                .clone()
-                .query("limit".to_string(), limit.to_string())
-                .query("offset".to_string(), offset.to_string());
-            let page_key = format!("{key}-o{offset}-l{limit}");
-            let (page, _) = self.load_cached_value::<Page<T>>(&req, bucket, &page_key, policy)?;
-            func(page)?;
-            return Ok(());
-        }
-
-        loop {
-            let req = request
-                .clone()
-                .query("limit".to_string(), limit.to_string())
-                .query("offset".to_string(), offset.to_string());
-            let page_key = format!("{key}-o{offset}-l{limit}");
-            let (page, _) = self.load_cached_value::<Page<T>>(&req, bucket, &page_key, policy)?;
-
-            let page_offset = page.offset;
-            let page_limit = page.limit;
-            func(page)?;
-
-            if page_offset + page_limit < lim {
-                offset = page_offset + page_limit;
-            } else {
-                break Ok(());
-            }
-        }
-    }
-
     fn load_all_pages_cached<T: DeserializeOwned + Clone>(
         &self,
         request: &RequestBuilder,
@@ -375,23 +963,6 @@ impl WebApi {
         Ok(results)
     }
 
-    fn load_some_pages_cached<T: DeserializeOwned + Clone>(
-        &self,
-        request: &RequestBuilder,
-        number: usize,
-        bucket: &str,
-        key: &str,
-        policy: CachePolicy,
-    ) -> Result<Vector<T>, Error> {
-        let mut results = Vector::new();
-
-        self.for_some_pages_cached(request, number, bucket, key, policy, |page| {
-            results.append(page.items);
-            Ok(())
-        })?;
-
-        Ok(results)
-    }
     /// Load local track files from the official client's database.
     pub fn load_local_tracks(&self, username: &str) {
         if let Err(err) = self
@@ -788,39 +1359,85 @@ impl WebApi {
     pub fn global() -> Arc<Self> {
         GLOBAL_WEBAPI.get().unwrap().clone()
     }
+
+    pub fn rate_limit_delay(&self) -> Option<Duration> {
+        let limiter = self.rate_limiter.lock();
+        let now = Instant::now();
+        if let Some(until) = limiter.cooldown_until {
+            if until > now {
+                return Some(until - now);
+            }
+        }
+        if let Some(until_wall) = limiter.cooldown_until_wall {
+            if let Ok(remaining) = until_wall.duration_since(SystemTime::now()) {
+                if !remaining.is_zero() {
+                    return Some(remaining);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn clear_rate_limit_state(&self) {
+        self.clear_rate_limit();
+    }
+
+    pub fn set_oauth_token(&self, token: OAuthToken) {
+        *self.oauth_token.lock() = Some(token);
+    }
+
+    pub fn is_rate_limited(&self) -> bool {
+        self.rate_limit_delay().is_some()
+    }
 }
 
 /// User endpoints.
 impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/get-users-profile
     pub fn get_user_profile(&self) -> Result<UserProfile, Error> {
-        let request = &RequestBuilder::new("v1/me".to_string(), Method::Get, None);
-        let result = self.load_cached(request, "user-profile", "me")?;
-        Ok(result.data)
+        let result: rspotify::model::PrivateUser =
+            self.load_cached_value_rspotify("user-profile", "me", CachePolicy::Use, || {
+                self.rspotify_call(|| self.rspotify.current_user())
+            })?;
+        Ok(self.user_profile_from_rspotify(result))
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-users-top-artists-and-tracks
     pub fn get_user_top_tracks(&self) -> Result<Vector<Arc<Track>>, Error> {
-        let request = &RequestBuilder::new("v1/me/top/tracks".to_string(), Method::Get, None)
-            .query("market", "from_token");
-        let result: Vector<Arc<Track>> =
-            self.load_some_pages_cached(request, 30, "user-top-tracks", "all", CachePolicy::Use)?;
-
-        Ok(result)
+        let cache_key = "all";
+        let result: rspotify::model::Page<rspotify::model::FullTrack> = self
+            .load_cached_value_rspotify("user-top-tracks", cache_key, CachePolicy::Use, || {
+                self.rspotify_call(|| {
+                    self.rspotify.current_user_top_tracks_manual(
+                        Some(TimeRange::MediumTerm),
+                        Some(30),
+                        None,
+                    )
+                })
+            })?;
+        Ok(self
+            .rspotify_vec::<Track, _>(result.items)
+            .into_iter()
+            .map(Arc::new)
+            .collect())
     }
 
     pub fn get_user_top_artist(&self) -> Result<Vector<Artist>, Error> {
-        #[derive(Clone, Data, Deserialize)]
-        #[allow(dead_code)]
-        struct Artists {
-            artists: Artist,
-        }
-        let request = &RequestBuilder::new("v1/me/top/artists", Method::Get, None);
-
-        Ok(self
-            .load_some_pages_cached(request, 10, "user-top-artists", "all", CachePolicy::Use)?
+        let cache_key = "all";
+        let result: rspotify::model::Page<rspotify::model::FullArtist> = self
+            .load_cached_value_rspotify("user-top-artists", cache_key, CachePolicy::Use, || {
+                self.rspotify_call(|| {
+                    self.rspotify.current_user_top_artists_manual(
+                        Some(TimeRange::MediumTerm),
+                        Some(10),
+                        None,
+                    )
+                })
+            })?;
+        Ok(result
+            .items
             .into_iter()
-            .map(|item: Artist| item)
+            .map(|artist| self.artist_from_full(artist))
             .collect())
     }
 }
@@ -829,9 +1446,13 @@ impl WebApi {
 impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/get-artist/
     pub fn get_artist(&self, id: &str) -> Result<Artist, Error> {
-        let request = &RequestBuilder::new(format!("v1/artists/{id}"), Method::Get, None);
-        let result = self.load_cached(request, "artist", id)?;
-        Ok(result.data)
+        let artist_id = ArtistId::from_id_or_uri(id)
+            .map_err(|_| Error::WebApiError("Invalid artist id".to_string()))?;
+        let result: rspotify::model::FullArtist =
+            self.load_cached_value_rspotify("artist", id, CachePolicy::Use, || {
+                self.rspotify_call(|| self.rspotify.artist(artist_id.as_ref()))
+            })?;
+        Ok(self.artist_from_full(result))
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-an-artists-albums/
@@ -848,10 +1469,40 @@ impl WebApi {
         id: &str,
         policy: CachePolicy,
     ) -> Result<ArtistAlbums, Error> {
-        let request = &RequestBuilder::new(format!("v1/artists/{id}/albums"), Method::Get, None)
-            .query("market", "from_token");
-        let result: Vector<Arc<Album>> =
-            self.load_all_pages_cached(request, "artist-albums", id, policy)?;
+        let artist_id = ArtistId::from_id_or_uri(id)
+            .map_err(|_| Error::WebApiError("Invalid artist id".to_string()))?
+            .into_static();
+        let result: Vec<rspotify::model::SimplifiedAlbum> =
+            self.load_cached_value_rspotify("artist-albums", id, policy, || {
+                let mut all = Vec::new();
+                let mut offset = 0u32;
+                let limit = 50u32;
+                loop {
+                    let page = self.rspotify_call(|| {
+                        self.rspotify.artist_albums_manual(
+                            artist_id.as_ref(),
+                            [
+                                RSpotifyAlbumType::Album,
+                                RSpotifyAlbumType::Single,
+                                RSpotifyAlbumType::Compilation,
+                                RSpotifyAlbumType::AppearsOn,
+                            ],
+                            Some(Market::FromToken),
+                            Some(limit),
+                            Some(offset),
+                        )
+                    })?;
+                    if page.items.is_empty() {
+                        break;
+                    }
+                    offset = page.offset + page.limit;
+                    all.extend(page.items);
+                    if offset >= page.total || offset as usize >= self.paginated_limit {
+                        break;
+                    }
+                }
+                Ok(all)
+            })?;
 
         let mut artist_albums = ArtistAlbums {
             albums: Vector::new(),
@@ -860,35 +1511,18 @@ impl WebApi {
             appears_on: Vector::new(),
         };
 
-        let mut last_album_release_year = usize::MAX;
-        let mut last_single_release_year = usize::MAX;
-
         for album in result {
+            let Some(album) = self.album_from_simplified(album) else {
+                continue;
+            };
             match album.album_type {
-                // Spotify is labeling albums and singles that should be labeled `appears_on` as `album` or `single`.
-                // They are still ordered properly though, with the most recent first, then 'appears_on'.
-                // So we just wait until they are no longer descending, then start putting them in the 'appears_on' Vec.
-                // NOTE: This will break if an artist has released 'appears_on' albums/singles before their first actual album/single.
-                AlbumType::Album => {
-                    if album.release_year_int() > last_album_release_year {
-                        artist_albums.appears_on.push_back(album)
-                    } else {
-                        last_album_release_year = album.release_year_int();
-                        artist_albums.albums.push_back(album)
-                    }
-                }
-                AlbumType::Single => {
-                    if album.release_year_int() > last_single_release_year {
-                        artist_albums.appears_on.push_back(album);
-                    } else {
-                        last_single_release_year = album.release_year_int();
-                        artist_albums.singles.push_back(album);
-                    }
-                }
-                AlbumType::Compilation => artist_albums.compilations.push_back(album),
-                AlbumType::AppearsOn => artist_albums.appears_on.push_back(album),
+                AlbumType::Album => artist_albums.albums.push_back(Arc::new(album)),
+                AlbumType::Single => artist_albums.singles.push_back(Arc::new(album)),
+                AlbumType::Compilation => artist_albums.compilations.push_back(Arc::new(album)),
+                AlbumType::AppearsOn => artist_albums.appears_on.push_back(Arc::new(album)),
             }
         }
+
         Ok(artist_albums)
     }
 
@@ -906,46 +1540,23 @@ impl WebApi {
         id: &str,
         policy: CachePolicy,
     ) -> Result<Vector<Arc<Track>>, Error> {
-        #[derive(Deserialize)]
-        struct Tracks {
-            tracks: Vector<Arc<Track>>,
-        }
-        let request =
-            &RequestBuilder::new(format!("v1/artists/{id}/top-tracks"), Method::Get, None)
-                .query("market", "from_token");
-        let (result, _) =
-            self.load_cached_value::<Tracks>(request, "artist-top-tracks", id, policy)?;
-        Ok(result.tracks)
+        let artist_id = ArtistId::from_id_or_uri(id)
+            .map_err(|_| Error::WebApiError("Invalid artist id".to_string()))?;
+        let result: Vec<rspotify::model::FullTrack> =
+            self.load_cached_value_rspotify("artist-top-tracks", id, policy, || {
+                self.rspotify_call(|| {
+                    self.rspotify
+                        .artist_top_tracks(artist_id.as_ref(), Some(Market::FromToken))
+                })
+            })?;
+        Ok(self
+            .rspotify_vec::<Track, _>(result)
+            .into_iter()
+            .map(Arc::new)
+            .collect())
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-an-artists-related-artists
-    pub fn get_related_artists(&self, id: &str) -> Result<Cached<Vector<Artist>>, Error> {
-        self.get_related_artists_with_policy(id, CachePolicy::Use)
-    }
-
-    pub fn refresh_related_artists(&self, id: &str) -> Result<Cached<Vector<Artist>>, Error> {
-        self.get_related_artists_with_policy(id, CachePolicy::Refresh)
-    }
-
-    fn get_related_artists_with_policy(
-        &self,
-        id: &str,
-        policy: CachePolicy,
-    ) -> Result<Cached<Vector<Artist>>, Error> {
-        #[derive(Clone, Data, Deserialize)]
-        struct Artists {
-            artists: Vector<Artist>,
-        }
-        let request = &RequestBuilder::new(
-            format!("v1/artists/{id}/related-artists"),
-            Method::Get,
-            None,
-        );
-        let result: Cached<Artists> =
-            self.load_cached_with(request, "related-artists", id, policy)?;
-        Ok(result.map(|result| result.artists))
-    }
-
     pub fn get_artist_info(&self, id: &str) -> Result<Cached<ArtistInfo>, Error> {
         self.get_artist_info_with_policy(id, CachePolicy::Use)
     }
@@ -1442,10 +2053,15 @@ impl WebApi {
 impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/get-a-list-of-current-users-playlists
     pub fn get_playlists(&self) -> Result<Vector<Playlist>, Error> {
-        let request = &RequestBuilder::new("v1/me/playlists", Method::Get, None);
-        let result: Vector<Playlist> =
-            self.load_all_pages_cached(request, "playlists", "all", CachePolicy::Use)?;
-        Ok(result)
+        let result: rspotify::model::Page<rspotify::model::SimplifiedPlaylist> = self
+            .load_cached_value_rspotify("playlists", "all", CachePolicy::Use, || {
+                self.rspotify_call(|| self.rspotify.current_user_playlists_manual(Some(50), None))
+            })?;
+        Ok(result
+            .items
+            .into_iter()
+            .map(|playlist| self.playlist_from_simplified(playlist))
+            .collect())
     }
 
     pub fn follow_playlist(&self, id: &str) -> Result<(), Error> {
@@ -1467,9 +2083,13 @@ impl WebApi {
 
     // https://developer.spotify.com/documentation/web-api/reference/get-playlist
     pub fn get_playlist(&self, id: &str) -> Result<Playlist, Error> {
-        let request = &RequestBuilder::new(format!("v1/playlists/{id}"), Method::Get, None);
-        let result = self.load_cached(request, "playlist", id)?;
-        Ok(result.data)
+        let playlist_id = PlaylistId::from_id_or_uri(id)
+            .map_err(|_| Error::WebApiError("Invalid playlist id".to_string()))?;
+        let result: rspotify::model::FullPlaylist =
+            self.load_cached_value_rspotify("playlist", id, CachePolicy::Use, || {
+                self.rspotify_call(|| self.rspotify.playlist(playlist_id.as_ref(), None, None))
+            })?;
+        Ok(self.playlist_from_full(result))
     }
 
     // https://developer.spotify.com/documentation/web-api/reference/get-playlists-tracks
@@ -1479,56 +2099,48 @@ impl WebApi {
         offset: usize,
         limit: usize,
     ) -> Result<Page<Arc<Track>>, Error> {
-        #[derive(Clone, Deserialize)]
-        struct PlaylistItem {
-            track: OptionalTrack,
-        }
-
-        // Spotify API likes to return _really_ bogus data for local tracks. Much better
-        // would be to ignore parsing this completely if `is_local` is true, but this
-        // will do as well.
-        #[derive(Clone, Deserialize)]
-        #[serde(untagged)]
-        enum OptionalTrack {
-            Track(Arc<Track>),
-            Json(serde_json::Value),
-        }
-
-        let request = &RequestBuilder::new(format!("v1/playlists/{id}/tracks"), Method::Get, None)
-            .query("marker", "from_token")
-            .query("additional_types", "track")
-            .query("offset", offset.to_string())
-            .query("limit", limit.to_string());
-
+        let playlist_id = PlaylistId::from_id_or_uri(id)
+            .map_err(|_| Error::WebApiError("Invalid playlist id".to_string()))?;
         let page_key = format!("{id}-o{offset}-l{limit}");
-        let (page, _) = self.load_cached_value::<Page<PlaylistItem>>(
-            request,
-            "playlist-tracks",
-            &page_key,
-            CachePolicy::Use,
-        )?;
+        let page: rspotify::model::Page<rspotify::model::PlaylistItem> = self
+            .load_cached_value_rspotify("playlist-tracks", &page_key, CachePolicy::Use, || {
+                self.rspotify_call(|| {
+                    self.rspotify.playlist_items_manual(
+                        playlist_id.as_ref(),
+                        None,
+                        Some(Market::FromToken),
+                        Some(limit as u32),
+                        Some(offset as u32),
+                    )
+                })
+            })?;
 
         let local_track_manager = self.local_track_manager.lock();
-
         let items = page
             .items
             .into_iter()
             .enumerate()
             .filter_map(|(index, item)| {
                 let mut track = match item.track {
-                    OptionalTrack::Track(track) => track,
-                    OptionalTrack::Json(json) => local_track_manager.find_local_track(json)?,
+                    Some(PlayableItem::Track(track)) => {
+                        let track = self.rspotify_to::<Track, _>(&track).ok()?;
+                        Arc::new(track)
+                    }
+                    Some(PlayableItem::Unknown(json)) => {
+                        local_track_manager.find_local_track(json)?
+                    }
+                    _ => return None,
                 };
-                Arc::make_mut(&mut track).track_pos = page.offset + index;
+                Arc::make_mut(&mut track).track_pos = page.offset as usize + index;
                 Some(track)
             })
             .collect();
 
         Ok(Page {
             items,
-            limit: page.limit,
-            offset: page.offset,
-            total: page.total,
+            limit: page.limit as usize,
+            offset: page.offset as usize,
+            total: page.total as usize,
         })
     }
 
@@ -1655,34 +2267,53 @@ impl WebApi {
         topics: &[SearchTopic],
         limit: usize,
     ) -> Result<SearchResults, Error> {
-        #[derive(Deserialize)]
-        struct ApiSearchResults {
-            artists: Option<Page<Artist>>,
-            albums: Option<Page<Arc<Album>>>,
-            tracks: Option<Page<Arc<Track>>>,
-            playlists: Option<Page<Playlist>>,
-            shows: Option<Page<Arc<Show>>>,
-        }
-
         let type_query_param = topics.iter().map(SearchTopic::as_str).join(",");
-        let request = &RequestBuilder::new("v1/search", Method::Get, None)
-            .query("q", query.replace(" ", "%20"))
-            .query("type", &type_query_param)
-            .query("limit", limit.to_string())
-            .query("marker", "from_token");
         let cache_key = Self::cache_key(&format!("{query}:{type_query_param}:{limit}"));
-        let (result, _) = self.load_cached_value::<ApiSearchResults>(
-            request,
-            "search",
-            &cache_key,
-            CachePolicy::Use,
-        )?;
+        let result: rspotify::model::SearchMultipleResult =
+            self.load_cached_value_rspotify("search", &cache_key, CachePolicy::Use, || {
+                let types = topics.iter().map(|topic| match topic {
+                    SearchTopic::Artist => SearchType::Artist,
+                    SearchTopic::Album => SearchType::Album,
+                    SearchTopic::Track => SearchType::Track,
+                    SearchTopic::Playlist => SearchType::Playlist,
+                    SearchTopic::Show => SearchType::Show,
+                });
+                self.rspotify_call(|| {
+                    self.rspotify.search_multiple(
+                        query,
+                        types,
+                        Some(Market::FromToken),
+                        None,
+                        Some(limit as u32),
+                        None,
+                    )
+                })
+            })?;
 
-        let artists = result.artists.map_or_else(Vector::new, |page| page.items);
-        let albums = result.albums.map_or_else(Vector::new, |page| page.items);
-        let tracks = result.tracks.map_or_else(Vector::new, |page| page.items);
-        let playlists = result.playlists.map_or_else(Vector::new, |page| page.items);
-        let shows = result.shows.map_or_else(Vector::new, |page| page.items);
+        let artists = result
+            .artists
+            .map_or_else(Vector::new, |page| self.rspotify_vec(page.items));
+        let albums = result.albums.map_or_else(Vector::new, |page| {
+            self.rspotify_vec::<Album, _>(page.items)
+                .into_iter()
+                .map(Arc::new)
+                .collect()
+        });
+        let tracks = result.tracks.map_or_else(Vector::new, |page| {
+            self.rspotify_vec::<Track, _>(page.items)
+                .into_iter()
+                .map(Arc::new)
+                .collect()
+        });
+        let playlists = result
+            .playlists
+            .map_or_else(Vector::new, |page| self.rspotify_vec(page.items));
+        let shows = result.shows.map_or_else(Vector::new, |page| {
+            self.rspotify_vec::<Show, _>(page.items)
+                .into_iter()
+                .map(Arc::new)
+                .collect()
+        });
         let topic = (topics.len() == 1).then_some(topics[0]);
 
         Ok(SearchResults {
@@ -1953,5 +2584,32 @@ impl RequestBuilder {
             );
         }
         url
+    }
+}
+
+impl RequestGate {
+    fn new(max_in_flight: usize) -> Self {
+        Self {
+            state: Mutex::new(RequestGateState { in_flight: 0 }),
+            waiters: Condvar::new(),
+            max_in_flight,
+        }
+    }
+
+    fn acquire(&self) -> RequestPermit<'_> {
+        let mut state = self.state.lock();
+        while state.in_flight >= self.max_in_flight {
+            self.waiters.wait(&mut state);
+        }
+        state.in_flight += 1;
+        RequestPermit { gate: self }
+    }
+}
+
+impl Drop for RequestPermit<'_> {
+    fn drop(&mut self) {
+        let mut state = self.gate.state.lock();
+        state.in_flight = state.in_flight.saturating_sub(1);
+        self.gate.waiters.notify_one();
     }
 }

@@ -1,7 +1,6 @@
 use druid::{
     Data, Insets, LensExt, LocalizedString, Menu, MenuItem, Selector, Size, UnitPoint, Widget,
     WidgetExt,
-    im::Vector,
     kurbo::Circle,
     widget::{CrossAxisAlignment, Either, Flex, Label, LabelText, LineBreaking, List, Scroll},
 };
@@ -30,7 +29,6 @@ pub fn detail_widget() -> impl Widget<AppState> {
         .with_child(async_artist_info().padding((theme::grid(1.0), 0.0)))
         .with_child(async_top_tracks_widget())
         .with_child(async_albums_widget().padding((theme::grid(1.0), 0.0)))
-        .with_child(async_related_widget().padding((theme::grid(1.0), 0.0)))
 }
 
 fn async_top_tracks_widget() -> impl Widget<AppState> {
@@ -119,25 +117,6 @@ fn async_artist_info() -> impl Widget<AppState> {
         |d| WebApi::global().refresh_artist_info(&d.id),
         |_, data, d| data.artist_detail.artist_info.defer(d),
         |_, data, r| data.artist_detail.artist_info.update(r),
-    )
-}
-
-fn async_related_widget() -> impl Widget<AppState> {
-    Async::new(utils::spinner_widget, related_widget, || {
-        utils::retry_error_widget(LOAD_DETAIL)
-    })
-    .lens(AppState::artist_detail.then(ArtistDetail::related_artists))
-    .on_command_async(
-        LOAD_DETAIL,
-        |d| WebApi::global().get_related_artists(&d.id),
-        |_, data, d| data.artist_detail.related_artists.defer(d),
-        |_, data, r| data.artist_detail.related_artists.update(r),
-    )
-    .on_command_async(
-        REFRESH_DETAIL,
-        |d| WebApi::global().refresh_related_artists(&d.id),
-        |_, data, d| data.artist_detail.related_artists.defer(d),
-        |_, data, r| data.artist_detail.related_artists.update(r),
     )
 }
 
@@ -308,14 +287,6 @@ fn albums_widget() -> impl Widget<WithCtx<ArtistAlbums>> {
         .with_child(
             List::new(|| album::album_widget(false)).lens(Ctx::map(ArtistAlbums::appears_on)),
         )
-}
-
-fn related_widget() -> impl Widget<Cached<Vector<Artist>>> {
-    Flex::column()
-        .cross_axis_alignment(CrossAxisAlignment::Start)
-        .with_child(header_widget("Related Artists"))
-        .with_child(List::new(|| artist_widget(false)))
-        .lens(Cached::data)
 }
 
 fn header_widget<T: Data>(text: impl Into<LabelText<T>>) -> impl Widget<T> {

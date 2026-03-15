@@ -1,5 +1,5 @@
 use num_bigint::{BigUint, ToBigUint};
-use rand::Rng;
+use rand::RngExt;
 
 pub struct DHLocalKeys {
     private_key: BigUint,

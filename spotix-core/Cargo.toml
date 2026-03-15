@@ -6,8 +6,8 @@ edition = "2024"
 
 
 [build-dependencies]
-gix-config = "0.48.0"
-time = { version = "0.3.44", features = ["local-offset"] }
+gix-config = "0.53.0"
+time = { version = "0.3.47", features = ["local-offset"] }
 
 [dependencies]
 
@@ -21,18 +21,21 @@ num-traits = { version = "0.2.19" }
 oauth2 = { version = "5.0.0", features = ["reqwest-blocking"] }
 parking_lot = { version = "0.12.5" }
 librespot-protocol = "0.8.0"
+librespot-core = "0.8.0"
+librespot-playback = { version = "0.8.0", default-features = false, features = ["native-tls", "rodio-backend"] }
 protobuf = "3"
-sysinfo = "0.37.2"
-data-encoding = "2.9"
-rand = { version = "0.9.2" }
+sysinfo = "0.38.4"
+data-encoding = "2.10"
+rand = { version = "0.10.0" }
 rangemap = { version = "1.7.1" }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.145" }
+serde_json = { version = "1.0.149" }
 socks = { version = "0.3.4" }
-tempfile = { version = "3.23.0" }
+tempfile = { version = "3.27.0" }
 rustfm-scrobble = "1.1.1"
-ureq = { version = "3.1.4", features = ["json"] }
-url = { version = "2.5.7" }
+ureq = { version = "3.2.0", features = ["json"] }
+url = { version = "2.5.8" }
+tokio = { version = "1.50.0", features = ["rt", "rt-multi-thread"] }
 
 # Cryptography
 aes = { version = "0.8.4" }
@@ -43,7 +46,7 @@ shannon = { version = "0.2.0" }
 
 # Audio
 audio_thread_priority = "0.34.0"
-cpal = { version = "0.17.0", optional = true }
+cpal = { version = "0.16.0", optional = true }
 cubeb = { git = "https://github.com/mozilla/cubeb-rs", optional = true }
 libsamplerate = { version = "0.1.0" }
 rb = { version = "0.4.1" }
