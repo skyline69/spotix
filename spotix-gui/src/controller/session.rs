@@ -1,6 +1,10 @@
-use druid::widget::{Controller, prelude::*};
+use druid::widget::{prelude::*, Controller};
 
-use crate::{cmd, data::AppState, ui::user};
+use crate::{
+    cmd,
+    data::AppState,
+    ui::{playlist, user},
+};
 
 #[derive(Default)]
 pub struct SessionController {}
@@ -10,8 +14,9 @@ impl SessionController {
         // Update the session configuration, any active session will get shut down.
         data.session.update_config(data.config.session());
 
-        // Reload minimal global data. Avoid heavy auto-loads that can trigger 429s.
+        // Reload global data on connect.
         ctx.submit_command(user::LOAD_PROFILE);
+        ctx.submit_command(playlist::LOAD_LIST);
     }
 }
 
