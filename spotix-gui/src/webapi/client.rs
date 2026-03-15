@@ -281,7 +281,9 @@ impl WebApi {
         }
 
         let mut headers = request.get_headers().clone();
-        if request.base_uri == "api.spotify.com" {
+        let needs_client_token = request.base_uri == "api.spotify.com"
+            || request.base_uri == "api-partner.spotify.com";
+        if needs_client_token {
             headers.insert("app-platform".to_string(), "WebPlayer".to_string());
             match self.client_token_provider.get() {
                 Ok(client_token) => {
