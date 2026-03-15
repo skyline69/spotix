@@ -34,11 +34,15 @@ impl Queue {
 
     pub fn clear(&mut self) {
         self.items.clear();
+        self.user_items.clear();
+        self.user_items_position = 0;
         self.positions.clear();
         self.position = 0;
     }
 
     pub fn fill(&mut self, items: Vec<PlaybackItem>, position: usize) {
+        self.user_items.clear();
+        self.user_items_position = 0;
         self.positions.clear();
         self.items = items;
         self.position = position;
@@ -75,10 +79,12 @@ impl Queue {
 
     fn handle_added_queue(&mut self) {
         if self.user_items.len() > self.user_items_position {
-            let next_index = self.positions.len();
-            self.items
-                .insert(next_index, self.user_items[self.user_items_position]);
-            self.positions.push(next_index);
+            // Insert the next user item right after the current position
+            // so it plays immediately on the next skip (matching UI behavior).
+            let item_index = self.items.len();
+            self.items.push(self.user_items[self.user_items_position]);
+            let insert_pos = (self.position + 1).min(self.positions.len());
+            self.positions.insert(insert_pos, item_index);
             self.user_items_position += 1;
         }
     }
