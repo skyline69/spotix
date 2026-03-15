@@ -1,21 +1,24 @@
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use druid::piet::{Text, TextLayout, TextLayoutBuilder};
 use druid::widget::Controller;
 use druid::{
-    BoxConstraints, Cursor, Data, Event, EventCtx, LayoutCtx, LensExt, LifeCycle, LifeCycleCtx,
-    PaintCtx, Point, RenderContext, Selector, Size, Target, TimerToken, UpdateCtx, Vec2, Widget,
-    WidgetExt, WidgetId,
+    BoxConstraints, Cursor, Data, Event, EventCtx, LayoutCtx, LensExt, LifeCycle,
+    LifeCycleCtx, PaintCtx, Point, RenderContext, Selector, Size, Target, TimerToken, UpdateCtx,
+    Vec2, Widget, WidgetExt, WidgetId,
+    piet::{LinearGradient, UnitPoint},
     text::TextAlignment,
-    widget::{Container, CrossAxisAlignment, Flex, Label, List, Scroll},
+    widget::{Container, CrossAxisAlignment, Flex, Label, List, Painter, Scroll},
 };
 
 use crate::cmd;
+use crate::data::config::LyricsAppearance;
 use crate::data::{AppState, Ctx, NowPlaying, Playable, TrackLines, WithCtx};
 use crate::widget::MyWidgetExt;
 use crate::{webapi::WebApi, widget::Async};
 
+use super::palette::{self, AlbumPalette};
 use super::theme;
 use super::utils;
 
@@ -24,8 +27,43 @@ const SCROLL_LYRIC_TO: Selector<f64> = Selector::new("app.lyrics.scroll-to");
 pub const SCROLL_ACTIVE_LYRIC: Selector = Selector::new("app.lyrics.scroll-active");
 static LYRICS_SCROLL_ID: OnceLock<WidgetId> = OnceLock::new();
 
+/// Shared palette cache: (track_image_url, extracted_palette).
+/// Avoids re-running k-means on every repaint.
+static PALETTE_CACHE: OnceLock<Mutex<Option<(Arc<str>, AlbumPalette)>>> = OnceLock::new();
+
+fn cached_palette(data: &AppState) -> AlbumPalette {
+    let cache = PALETTE_CACHE.get_or_init(|| Mutex::new(None));
+
+    let image_url: Option<Arc<str>> = data
+        .playback
+        .now_playing
+        .as_ref()
+        .and_then(|np| np.cover_image_url(300.0, 300.0))
+        .map(Arc::from);
+
+    let Some(url) = image_url else {
+        return AlbumPalette::default();
+    };
+
+    let mut guard = cache.lock().unwrap();
+    if let Some((ref cached_url, ref palette)) = *guard
+        && *cached_url == url
+    {
+        return palette.clone();
+    }
+
+    // Try to get the image from the in-memory cache
+    if let Some(image_buf) = WebApi::global().get_cached_image(&url) {
+        let palette = palette::extract_palette(&image_buf);
+        *guard = Some((url, palette.clone()));
+        palette
+    } else {
+        AlbumPalette::default()
+    }
+}
+
 pub fn lyrics_widget() -> impl Widget<AppState> {
-    Scroll::new(
+    let inner = Scroll::new(
         Container::new(
             Flex::column()
                 .cross_axis_alignment(CrossAxisAlignment::Start)
@@ -38,7 +76,37 @@ pub fn lyrics_widget() -> impl Widget<AppState> {
     )
     .vertical()
     .controller(LyricsScrollController::default())
-    .with_id(lyrics_scroll_id())
+    .with_id(lyrics_scroll_id());
+
+    // Wrap with dynamic Spotify-styled background when enabled
+    let bg = Painter::new(|ctx, data: &AppState, _env| {
+        if data.config.lyrics_appearance != LyricsAppearance::SpotifyStyled {
+            return;
+        }
+        let palette = cached_palette(data);
+        let rect = ctx.size().to_rect();
+        let gradient = LinearGradient::new(
+            UnitPoint::TOP,
+            UnitPoint::BOTTOM,
+            (palette.dominant, palette.secondary),
+        );
+        ctx.fill(rect, &gradient);
+    });
+
+    inner
+        .background(bg)
+        .env_scope(|env, data: &AppState| {
+            if data.config.lyrics_appearance != LyricsAppearance::SpotifyStyled {
+                return;
+            }
+            let palette = cached_palette(data);
+            env.set(theme::LYRIC_HIGHLIGHT, palette.highlight);
+            env.set(theme::LYRIC_HOVER, palette.text);
+            env.set(theme::GREY_500, palette.past);
+            env.set(theme::GREY_100, palette.text);
+            // Override text colors for track info
+            env.set(theme::PLACEHOLDER_COLOR, palette.past);
+        })
 }
 
 fn track_info_widget() -> impl Widget<AppState> {

@@ -185,6 +185,15 @@ pub struct Config {
     /// Optional client ID for Spotify Web API requests.
     /// If unset, falls back to the default Spotify client ID.
     pub webapi_client_id: Option<String>,
+    /// Lyrics appearance mode.
+    pub lyrics_appearance: LyricsAppearance,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data, Serialize, Deserialize)]
+pub enum LyricsAppearance {
+    #[default]
+    Default,
+    SpotifyStyled,
 }
 
 impl Default for Config {
@@ -218,6 +227,7 @@ impl Default for Config {
             lastfm_enable: false,
             eq: EqSettings::default(),
             webapi_client_id: None,
+            lyrics_appearance: LyricsAppearance::default(),
         }
     }
 }

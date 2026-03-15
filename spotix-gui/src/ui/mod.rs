@@ -42,6 +42,7 @@ pub mod home;
 pub mod library;
 pub mod lyrics;
 pub mod menu;
+pub mod palette;
 pub mod playable;
 pub mod playback;
 pub mod playlist;

@@ -9,6 +9,7 @@ use crate::{
     data::{
         AppState, AudioQuality, Authentication, CacheUsage, Config, EqBands, EqPreset, EqSettings,
         Preferences, PreferencesTab, Promise, SliderScrollScale, Theme,
+        config::LyricsAppearance,
     },
     webapi::WebApi,
     widget::{icons, Async, Border, Checkbox, MyWidgetExt},
@@ -215,6 +216,20 @@ fn general_tab_widget() -> impl Widget<AppState> {
         Checkbox::new("Enable pagination for long playlists")
             .lens(AppState::config.then(Config::enable_pagination)),
     );
+
+    col = col.with_spacer(theme::grid(3.0));
+
+    // Lyrics appearance
+    col = col
+        .with_child(Label::new("Lyrics appearance").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(2.0))
+        .with_child(
+            RadioGroup::column(vec![
+                ("Default", LyricsAppearance::Default),
+                ("Spotify styled (dynamic album colors)", LyricsAppearance::SpotifyStyled),
+            ])
+            .lens(AppState::config.then(Config::lyrics_appearance)),
+        );
 
     col = col.with_spacer(theme::grid(3.0));
 
