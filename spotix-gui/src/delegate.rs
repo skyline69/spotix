@@ -1,7 +1,7 @@
 use directories::UserDirs;
 use druid::{
     AppDelegate, Application, Command, DelegateCtx, Env, Event, Handled, Target, WindowDesc,
-    WindowId, commands,
+    WindowHandle, WindowId, commands,
 };
 use std::fs;
 use threadpool::ThreadPool;
@@ -26,6 +26,7 @@ pub struct Delegate {
     artwork_window: Option<WindowId>,
     image_pool: ThreadPool,
     size_updated: bool,
+    tray_handle: Option<ksni::blocking::Handle<crate::tray::SpotixTray>>,
 }
 
 impl Delegate {
@@ -39,6 +40,7 @@ impl Delegate {
             artwork_window: None,
             image_pool: ThreadPool::with_name("image_loading".into(), MAX_IMAGE_THREADS),
             size_updated: false,
+            tray_handle: None,
         }
     }
 
@@ -131,6 +133,20 @@ impl Delegate {
 }
 
 impl AppDelegate<AppState> for Delegate {
+    fn window_added(
+        &mut self,
+        id: WindowId,
+        _handle: WindowHandle,
+        _data: &mut AppState,
+        _env: &Env,
+        ctx: &mut DelegateCtx,
+    ) {
+        if self.main_window == Some(id) && self.tray_handle.is_none() {
+            let sink = ctx.get_external_handle();
+            self.tray_handle = crate::tray::start_tray(sink);
+        }
+    }
+
     fn command(
         &mut self,
         ctx: &mut DelegateCtx,
@@ -139,7 +155,14 @@ impl AppDelegate<AppState> for Delegate {
         data: &mut AppState,
         _env: &Env,
     ) -> Handled {
-        if cmd.is(cmd::SHOW_CREDITS_WINDOW) {
+        if cmd.is(cmd::TRAY_SHOW_WINDOW) {
+            if let Some(id) = self.main_window {
+                ctx.submit_command(commands::SHOW_WINDOW.to(id));
+            } else {
+                self.show_main(&data.config, ctx);
+            }
+            Handled::Yes
+        } else if cmd.is(cmd::SHOW_CREDITS_WINDOW) {
             let _window_id = self.show_credits(ctx);
             if let Some(track) = cmd.get(cmd::SHOW_CREDITS_WINDOW) {
                 ctx.submit_command(
@@ -201,6 +224,8 @@ impl AppDelegate<AppState> for Delegate {
             ctx.submit_command(RENAME_PLAYLIST.with(link.clone()));
             Handled::Yes
         } else if cmd.is(cmd::QUIT_APP_WITH_SAVE) {
+            data.config.volume = data.playback.volume;
+            data.config.save();
             ctx.submit_command(commands::QUIT_APP);
             Handled::Yes
         } else if cmd.is(commands::QUIT_APP) {
@@ -254,6 +279,7 @@ impl AppDelegate<AppState> for Delegate {
         if self.main_window == Some(id) {
             data.config.volume = data.playback.volume;
             data.config.save();
+            self.main_window = None;
             ctx.submit_command(commands::CLOSE_ALL_WINDOWS);
             ctx.submit_command(commands::QUIT_APP);
         }

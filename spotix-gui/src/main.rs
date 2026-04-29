@@ -6,6 +6,7 @@ mod controller;
 mod data;
 mod delegate;
 mod error;
+mod tray;
 mod ui;
 mod webapi;
 mod widget;

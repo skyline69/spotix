@@ -20,6 +20,7 @@ pub const SHOW_MAIN: Selector = Selector::new("app.show-main");
 pub const SHOW_ACCOUNT_SETUP: Selector = Selector::new("app.show-initial");
 pub const CLOSE_ALL_WINDOWS: Selector = Selector::new("app.close-all-windows");
 pub const QUIT_APP_WITH_SAVE: Selector = Selector::new("app.quit-with-save");
+pub const TRAY_SHOW_WINDOW: Selector = Selector::new("app.tray.show-window");
 pub const SET_FOCUS: Selector = Selector::new("app.set-focus");
 pub const COPY: Selector<String> = Selector::new("app.copy-to-clipboard");
 pub const GO_TO_URL: Selector<String> = Selector::new("app.go-to-url");

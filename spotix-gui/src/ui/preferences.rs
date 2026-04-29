@@ -217,6 +217,13 @@ fn general_tab_widget() -> impl Widget<AppState> {
             .lens(AppState::config.then(Config::enable_pagination)),
     );
 
+    col = col.with_spacer(theme::grid(1.0));
+
+    col = col.with_child(
+        Checkbox::new("Minimize to system tray on close")
+            .lens(AppState::config.then(Config::close_to_tray)),
+    );
+
     col = col.with_spacer(theme::grid(3.0));
 
     // Lyrics appearance

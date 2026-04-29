@@ -53,6 +53,7 @@ druid-shell = { version = "0.8.3", features = ["raw-win-handle"] }
 open = { version = "5.3.3" }
 raw-window-handle = "0.6.2" # Must stay compatible with Druid
 souvlaki = { version = "0.8.3", default-features = false, features = ["use_zbus"] }
+ksni = { version = "0.3", features = ["blocking"] }
 sanitize_html = "0.10.0"
 rustfm-scrobble = "1.1.1"
 [target.'cfg(windows)'.build-dependencies]
