@@ -58,8 +58,30 @@ pub mod utils;
 
 pub const DOWNLOAD_ARTWORK: Selector<(String, String)> = Selector::new("app.artwork.download");
 
+struct CloseTrayController;
+
+impl<W: Widget<AppState>> Controller<AppState, W> for CloseTrayController {
+    fn event(
+        &mut self,
+        child: &mut W,
+        ctx: &mut druid::EventCtx,
+        event: &druid::Event,
+        data: &mut AppState,
+        env: &Env,
+    ) {
+        if matches!(event, druid::Event::WindowCloseRequested) && data.config.close_to_tray {
+            data.config.volume = data.playback.volume;
+            data.config.save();
+            ctx.submit_command(druid::commands::HIDE_WINDOW.to(ctx.window_id()));
+            ctx.set_handled();
+            return;
+        }
+        child.event(ctx, event, data, env);
+    }
+}
+
 pub fn main_window(config: &Config) -> WindowDesc<AppState> {
-    let win = WindowDesc::new(root_widget())
+    let win = WindowDesc::new(root_widget().controller(CloseTrayController))
         .title(compute_main_window_title)
         .with_min_size((theme::grid(65.0), theme::grid(50.0)))
         .window_size(config.window_size)

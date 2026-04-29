@@ -189,6 +189,8 @@ pub struct Config {
     pub lyrics_appearance: LyricsAppearance,
     /// Enable dynamic playing bar with album-art-derived colors and pulse.
     pub dynamic_playing_bar: bool,
+    /// Minimize to system tray when the main window is closed.
+    pub close_to_tray: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data, Serialize, Deserialize)]
@@ -231,6 +233,7 @@ impl Default for Config {
             webapi_client_id: None,
             lyrics_appearance: LyricsAppearance::default(),
             dynamic_playing_bar: true,
+            close_to_tray: false,
         }
     }
 }
