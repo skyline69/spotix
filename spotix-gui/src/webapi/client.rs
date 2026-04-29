@@ -25,8 +25,7 @@ use log::info;
 use parking_lot::{Condvar, Mutex};
 use rspotify::clients::{BaseClient, OAuthClient};
 use rspotify::model::{
-    AlbumType as RSpotifyAlbumType, ArtistId, Market, PlayableItem, PlaylistId, SearchType,
-    TimeRange,
+    AlbumType as RSpotifyAlbumType, ArtistId, PlayableItem, PlaylistId, SearchType, TimeRange,
 };
 use rspotify::prelude::Id;
 use rspotify::{ClientError, Token as RSpotifyToken};
@@ -872,7 +871,7 @@ impl WebApi {
     fn user_profile_from_rspotify(&self, user: rspotify::model::PrivateUser) -> UserProfile {
         UserProfile {
             display_name: Arc::from(user.display_name.unwrap_or_default()),
-            email: Arc::from(user.email.unwrap_or_default()),
+            email: Arc::from(""),
             id: Arc::from(user.id.id()),
         }
     }
@@ -883,7 +882,7 @@ impl WebApi {
             name: Arc::from(playlist.name),
             images: Some(self.images_from_rspotify(playlist.images)),
             description: Arc::from(""),
-            track_count: Some(playlist.tracks.total as usize),
+            track_count: Some(playlist.items.total as usize),
             owner: self.public_user_from_rspotify(playlist.owner),
             collaborative: playlist.collaborative,
             public: playlist.public,
@@ -896,7 +895,7 @@ impl WebApi {
             name: Arc::from(playlist.name),
             images: Some(self.images_from_rspotify(playlist.images)),
             description: sanitize_html_string(playlist.description.as_deref().unwrap_or_default()),
-            track_count: Some(playlist.tracks.total as usize),
+            track_count: Some(playlist.items.total as usize),
             owner: self.public_user_from_rspotify(playlist.owner),
             collaborative: playlist.collaborative,
             public: playlist.public,
@@ -904,10 +903,7 @@ impl WebApi {
     }
 
     fn album_type_from_meta(&self, album: &rspotify::model::SimplifiedAlbum) -> AlbumType {
-        let group = album
-            .album_group
-            .as_deref()
-            .or(album.album_type.as_deref());
+        let group = album.album_type.as_deref();
         match group {
             Some("single") => AlbumType::Single,
             Some("compilation") => AlbumType::Compilation,
@@ -1563,7 +1559,7 @@ impl WebApi {
                                 RSpotifyAlbumType::Compilation,
                                 RSpotifyAlbumType::AppearsOn,
                             ],
-                            Some(Market::FromToken),
+                            None,
                             Some(limit),
                             Some(offset),
                         )
@@ -1611,6 +1607,7 @@ impl WebApi {
         self.get_artist_top_tracks_with_policy(id, CachePolicy::Refresh)
     }
 
+    #[allow(deprecated)]
     fn get_artist_top_tracks_with_policy(
         &self,
         id: &str,
@@ -1622,7 +1619,7 @@ impl WebApi {
             self.load_cached_value_rspotify("artist-top-tracks", id, policy, || {
                 self.rspotify_call(|| {
                     self.rspotify
-                        .artist_top_tracks(artist_id.as_ref(), Some(Market::FromToken))
+                        .artist_top_tracks(artist_id.as_ref(), None)
                 })
             })?;
         Ok(self
@@ -1775,8 +1772,7 @@ impl WebApi {
         id: &str,
         policy: CachePolicy,
     ) -> Result<Cached<Arc<Album>>, Error> {
-        let request = &RequestBuilder::new(format!("v1/albums/{id}"), Method::Get, None)
-            .query("market", "from_token");
+        let request = &RequestBuilder::new(format!("v1/albums/{id}"), Method::Get, None);
         let result = self.load_cached_with(request, "album", id, policy)?;
         Ok(result)
     }
@@ -1798,8 +1794,7 @@ impl WebApi {
         id: &str,
         policy: CachePolicy,
     ) -> Result<Cached<Arc<Show>>, Error> {
-        let request = &RequestBuilder::new(format!("v1/shows/{id}"), Method::Get, None)
-            .query("market", "from_token");
+        let request = &RequestBuilder::new(format!("v1/shows/{id}"), Method::Get, None);
 
         let result = self.load_cached_with(request, "show", id, policy)?;
 
@@ -1821,16 +1816,14 @@ impl WebApi {
         let id_list = ids.iter().map(|id| id.0.to_base62()).join(",");
         let cache_key = Self::cache_key(&id_list);
         let request = &RequestBuilder::new("v1/episodes", Method::Get, None)
-            .query("ids", &id_list)
-            .query("market", "from_token");
+            .query("ids", &id_list);
         let (result, _) =
             self.load_cached_value::<Episodes>(request, "episodes", &cache_key, policy)?;
         Ok(result.episodes)
     }
 
     pub fn get_episode(&self, id: &str) -> Result<Arc<Episode>, Error> {
-        let request = &RequestBuilder::new(format!("v1/episodes/{id}"), Method::Get, None)
-            .query("market", "from_token");
+        let request = &RequestBuilder::new(format!("v1/episodes/{id}"), Method::Get, None);
         let result: Cached<Arc<Episode>> = self.load_cached(request, "episode", id)?;
         Ok(result.data)
     }
@@ -1851,8 +1844,7 @@ impl WebApi {
         id: &str,
         policy: CachePolicy,
     ) -> Result<Vector<Arc<Episode>>, Error> {
-        let request = &RequestBuilder::new(format!("v1/shows/{id}/episodes"), Method::Get, None)
-            .query("market", "from_token");
+        let request = &RequestBuilder::new(format!("v1/shows/{id}/episodes"), Method::Get, None);
 
         let mut results = Vector::new();
         self.for_all_pages_cached(
@@ -1881,8 +1873,7 @@ impl WebApi {
 impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/get-track
     pub fn get_track(&self, id: &str) -> Result<Arc<Track>, Error> {
-        let request = &RequestBuilder::new(format!("v1/tracks/{id}"), Method::Get, None)
-            .query("market", "from_token");
+        let request = &RequestBuilder::new(format!("v1/tracks/{id}"), Method::Get, None);
         let result = self.load_cached(request, "track", id)?;
         Ok(result.data)
     }
@@ -1938,8 +1929,7 @@ impl WebApi {
             album: Arc<Album>,
         }
 
-        let request =
-            &RequestBuilder::new("v1/me/albums", Method::Get, None).query("market", "from_token");
+        let request = &RequestBuilder::new("v1/me/albums", Method::Get, None);
 
         Ok(self
             .load_all_pages_cached(request, "saved-albums", "all", CachePolicy::Use)?
@@ -1970,8 +1960,7 @@ impl WebApi {
         struct SavedTrack {
             track: Arc<Track>,
         }
-        let request =
-            &RequestBuilder::new("v1/me/tracks", Method::Get, None).query("market", "from_token");
+        let request = &RequestBuilder::new("v1/me/tracks", Method::Get, None);
         Ok(self
             .load_all_pages_cached(request, "saved-tracks", "all", CachePolicy::Use)?
             .into_iter()
@@ -1986,8 +1975,7 @@ impl WebApi {
             show: Arc<Show>,
         }
 
-        let request =
-            &RequestBuilder::new("v1/me/shows", Method::Get, None).query("market", "from_token");
+        let request = &RequestBuilder::new("v1/me/shows", Method::Get, None);
 
         Ok(self
             .load_all_pages_cached(request, "saved-shows", "all", CachePolicy::Use)?
@@ -2184,7 +2172,7 @@ impl WebApi {
                     self.rspotify.playlist_items_manual(
                         playlist_id.as_ref(),
                         None,
-                        Some(Market::FromToken),
+                        None,
                         Some(limit as u32),
                         Some(offset as u32),
                     )
@@ -2197,7 +2185,7 @@ impl WebApi {
             .into_iter()
             .enumerate()
             .filter_map(|(index, item)| {
-                let mut track = match item.track {
+                let mut track = match item.item {
                     Some(PlayableItem::Track(track)) => {
                         let track = self.rspotify_to::<Track, _>(&track).ok()?;
                         Arc::new(track)
@@ -2358,7 +2346,7 @@ impl WebApi {
                     self.rspotify.search_multiple(
                         query,
                         types,
-                        Some(Market::FromToken),
+                        None,
                         None,
                         Some(limit as u32),
                         None,

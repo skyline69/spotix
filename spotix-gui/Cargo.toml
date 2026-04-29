@@ -40,11 +40,11 @@ ureq = { version = "3.2.0", features = ["json", "socks-proxy"] }
 url = { version = "2.5.8" }
 infer = "0.19.0"
 tokio = { version = "1.50.0", features = ["rt", "time"] }
-rspotify = { version = "0.15.3", features = ["cli"] }
+rspotify = { version = "0.16.1", features = ["cli"] }
 maybe-async = "0.2.10"
 async-trait = "0.1.89"
 chrono = "0.4.44"
-rspotify-http = "0.15.3"
+rspotify-http = "0.16.1"
 librespot-core = "0.8.0"
 
 # GUI
