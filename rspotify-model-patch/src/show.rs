@@ -31,6 +31,7 @@ pub struct SimplifiedShow {
     pub languages: Vec<String>,
     pub media_type: String,
     pub name: String,
+    #[serde(default)]
     pub publisher: String,
 }
 
@@ -64,6 +65,7 @@ pub struct FullShow {
     pub languages: Vec<String>,
     pub media_type: String,
     pub name: String,
+    #[serde(default)]
     pub publisher: String,
 }
 
