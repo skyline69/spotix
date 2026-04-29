@@ -41,6 +41,7 @@ pub struct SimplifiedPlaylist {
     pub owner: PublicUser,
     pub public: Option<bool>,
     pub snapshot_id: String,
+    #[serde(default)]
     pub tracks: PlaylistTracksRef,
 }
 
@@ -50,6 +51,7 @@ pub struct FullPlaylist {
     pub collaborative: bool,
     pub description: Option<String>,
     pub external_urls: HashMap<String, String>,
+    #[serde(default)]
     pub followers: Followers,
     pub href: String,
     pub id: PlaylistId<'static>,
@@ -59,6 +61,7 @@ pub struct FullPlaylist {
     pub owner: PublicUser,
     pub public: Option<bool>,
     pub snapshot_id: String,
+    #[serde(default)]
     pub tracks: Page<PlaylistItem>,
 }
 

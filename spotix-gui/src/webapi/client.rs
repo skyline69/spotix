@@ -88,7 +88,7 @@ pub struct WebApi {
     paginated_limit: usize,
     rate_limiter: Mutex<RateLimiter>,
     request_gate: RequestGate,
-    webapi_client_id: String,
+    webapi_client_id: Mutex<String>,
     /// Set when an OAuth refresh token is revoked. Checked by the UI
     /// to show a re-authentication prompt.
     oauth_revoked: std::sync::atomic::AtomicBool,
@@ -174,7 +174,7 @@ impl WebApi {
             paginated_limit,
             rate_limiter: Mutex::new(rate_limiter),
             request_gate: RequestGate::new(8),
-            webapi_client_id,
+            webapi_client_id: Mutex::new(webapi_client_id),
             oauth_revoked: std::sync::atomic::AtomicBool::new(false),
         }
     }
@@ -262,7 +262,8 @@ impl WebApi {
                 log::warn!("webapi: oauth token expired but no refresh token available");
                 return Ok(None);
             };
-            match oauth::refresh_access_token(&refresh_token, &self.webapi_client_id) {
+            let client_id = self.webapi_client_id.lock().clone();
+            match oauth::refresh_access_token(&refresh_token, &client_id) {
                 Ok(refreshed) => {
                     log::info!("webapi: refreshed oauth access token");
                     *guard = Some(refreshed.clone());
@@ -656,7 +657,8 @@ impl WebApi {
                 log::warn!("webapi: oauth token expired but no refresh token available");
                 return Ok(None);
             };
-            match oauth::refresh_access_token(&refresh_token, &self.webapi_client_id) {
+            let client_id = self.webapi_client_id.lock().clone();
+            match oauth::refresh_access_token(&refresh_token, &client_id) {
                 Ok(refreshed) => {
                     log::info!("webapi: refreshed oauth access token");
                     *guard = Some(refreshed.clone());
@@ -1449,15 +1451,15 @@ impl WebApi {
             .store(false, std::sync::atomic::Ordering::SeqCst);
     }
 
+    pub fn set_webapi_client_id(&self, client_id: &str) {
+        *self.webapi_client_id.lock() = client_id.to_string();
+    }
+
     /// Check and clear the OAuth revocation flag. Returns `true` once
     /// after a revocation, then `false` until the next one.
     pub fn take_oauth_revoked(&self) -> bool {
         self.oauth_revoked
             .swap(false, std::sync::atomic::Ordering::SeqCst)
-    }
-
-    pub fn webapi_client_id(&self) -> &str {
-        &self.webapi_client_id
     }
 
     pub fn is_rate_limited(&self) -> bool {

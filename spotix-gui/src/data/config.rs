@@ -339,6 +339,8 @@ impl Config {
     pub fn effective_webapi_client_id(&self) -> &str {
         self.webapi_client_id
             .as_deref()
+            .map(str::trim)
+            .filter(|client_id| !client_id.is_empty())
             .unwrap_or(spotix_core::session::access_token::CLIENT_ID)
     }
 

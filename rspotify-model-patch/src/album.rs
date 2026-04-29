@@ -10,6 +10,18 @@ use crate::{
     SimplifiedTrack,
 };
 
+fn empty_simplified_track_page() -> Page<SimplifiedTrack> {
+    Page {
+        href: String::new(),
+        items: Vec::new(),
+        limit: 0,
+        next: None,
+        offset: 0,
+        previous: None,
+        total: 0,
+    }
+}
+
 /// Simplified Album Object
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct SimplifiedAlbum {
@@ -38,17 +50,23 @@ pub struct FullAlbum {
     pub artists: Vec<SimplifiedArtist>,
     pub album_type: AlbumType,
     pub available_markets: Option<Vec<String>>,
+    #[serde(default)]
     pub copyrights: Vec<Copyright>,
+    #[serde(default)]
     pub external_ids: HashMap<String, String>,
     pub external_urls: HashMap<String, String>,
+    #[serde(default)]
     pub genres: Vec<String>,
     pub href: String,
     pub id: AlbumId<'static>,
+    #[serde(default)]
     pub images: Vec<Image>,
     pub name: String,
+    #[serde(default)]
     pub popularity: u32,
     pub release_date: String,
     pub release_date_precision: DatePrecision,
+    #[serde(default = "empty_simplified_track_page")]
     pub tracks: Page<SimplifiedTrack>,
     /// Not documented in official Spotify docs, however most albums do contain this field
     pub label: Option<String>,

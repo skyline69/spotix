@@ -35,6 +35,7 @@ pub struct FullTrack {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restrictions: Option<Restriction>,
     pub name: String,
+    #[serde(default)]
     pub popularity: u32,
     pub preview_url: Option<String>,
     pub track_number: u32,

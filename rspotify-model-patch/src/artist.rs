@@ -19,12 +19,16 @@ pub struct SimplifiedArtist {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FullArtist {
     pub external_urls: HashMap<String, String>,
+    #[serde(default)]
     pub followers: Followers,
+    #[serde(default)]
     pub genres: Vec<String>,
     pub href: String,
     pub id: ArtistId<'static>,
+    #[serde(default)]
     pub images: Vec<Image>,
     pub name: String,
+    #[serde(default)]
     pub popularity: u32,
 }
 

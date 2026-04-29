@@ -56,6 +56,23 @@ where
         )
 }
 
+struct WebApiClientIdLens;
+
+impl Lens<AppState, String> for WebApiClientIdLens {
+    fn with<V, F: FnOnce(&String) -> V>(&self, data: &AppState, f: F) -> V {
+        let value = data.config.webapi_client_id.clone().unwrap_or_default();
+        f(&value)
+    }
+
+    fn with_mut<V, F: FnOnce(&mut String) -> V>(&self, data: &mut AppState, f: F) -> V {
+        let mut value = data.config.webapi_client_id.clone().unwrap_or_default();
+        let result = f(&mut value);
+        let value = value.trim().to_string();
+        data.config.webapi_client_id = (!value.is_empty()).then_some(value);
+        result
+    }
+}
+
 pub fn account_setup_widget() -> impl Widget<AppState> {
     Flex::column()
         .must_fill_main_axis(true)
@@ -711,6 +728,10 @@ fn account_tab_widget(tab: AccountTab) -> impl Widget<AppState> {
             .with_spacer(theme::grid(2.0));
     }
 
+    col = col
+        .with_child(spotify_client_id_section())
+        .with_spacer(theme::grid(2.0));
+
     // Spotify Login/Logout button
     col = col
         .with_child(ViewSwitcher::new(
@@ -784,6 +805,31 @@ fn account_tab_widget(tab: AccountTab) -> impl Widget<AppState> {
             ));
     }
     col.controller(Authenticate::new(tab))
+}
+
+fn spotify_client_id_section() -> impl Widget<AppState> {
+    Flex::column()
+        .cross_axis_alignment(CrossAxisAlignment::Start)
+        .with_child(Label::new("Spotify Developer Client ID").with_font(theme::UI_FONT_MEDIUM))
+        .with_spacer(theme::grid(1.0))
+        .with_child(
+            Label::new(
+                "Optional. Use your own Spotify app client ID to avoid shared-client rate limits. \
+                 Add http://127.0.0.1:8888/login as the redirect URL in Spotify Developer settings.",
+            )
+            .with_text_color(theme::PLACEHOLDER_COLOR)
+            .with_line_break_mode(LineBreaking::WordWrap),
+        )
+        .with_spacer(theme::grid(1.0))
+        .with_child(make_input_row(
+            "Client ID:",
+            "Leave empty to use Spotix default",
+            WebApiClientIdLens,
+        ))
+        .with_spacer(theme::grid(1.0))
+        .with_child(Button::new("Open Spotify Developer Dashboard").on_click(|_, _, _| {
+            open::that("https://developer.spotify.com/dashboard").ok();
+        }))
 }
 
 fn lastfm_connected_view() -> impl Widget<AppState> {
@@ -921,7 +967,7 @@ impl Authenticate {
         data.preferences.auth.result.defer_default();
 
         // Generate auth URL and store PKCE verifier
-        let client_id = WebApi::global().webapi_client_id().to_string();
+        let client_id = data.config.effective_webapi_client_id().to_string();
         let (auth_url, pkce_verifier) = oauth::generate_auth_url(8888, &client_id);
         let config = data.preferences.auth.session_config(); // Keep config local
 
@@ -1098,6 +1144,8 @@ impl<W: Widget<AppState>> Controller<AppState, W> for Authenticate {
                         // Always store the OAuth token for Web API access
                         data.config.store_oauth_token(payload.oauth_token.clone());
                         data.config.save();
+                        WebApi::global()
+                            .set_webapi_client_id(data.config.effective_webapi_client_id());
                         WebApi::global().set_oauth_token(payload.oauth_token.clone());
                         WebApi::global().clear_rate_limit_state();
 

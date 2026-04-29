@@ -74,6 +74,17 @@ cargo install --locked --path spotix-gui
 # --locked ensures the pinned dependency versions are used.
 ```
 
+### Optional Spotify Developer Client ID
+Spotix includes a default Spotify client ID, but heavy shared usage can trigger
+Spotify rate limits. If you see repeated 429 errors, create your own Spotify app:
+
+1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2. Create an app and enable Web API access.
+3. Add `http://127.0.0.1:8888/login` as a redirect URI.
+4. Copy the generated Client ID.
+5. In Spotix, open Settings -> Account and paste it into Spotify Developer Client ID.
+6. Re-authenticate with Spotify.
+
 ### Build from source
 ```shell
 cargo build
