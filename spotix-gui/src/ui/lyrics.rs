@@ -4,9 +4,9 @@ use std::time::{Duration, Instant};
 use druid::piet::{Text, TextLayout, TextLayoutBuilder};
 use druid::widget::Controller;
 use druid::{
-    BoxConstraints, Cursor, Data, Event, EventCtx, LayoutCtx, LensExt, LifeCycle,
-    LifeCycleCtx, PaintCtx, Point, RenderContext, Selector, Size, Target, TimerToken, UpdateCtx,
-    Vec2, Widget, WidgetExt, WidgetId,
+    BoxConstraints, Cursor, Data, Event, EventCtx, LayoutCtx, LensExt, LifeCycle, LifeCycleCtx,
+    PaintCtx, Point, RenderContext, Selector, Size, Target, TimerToken, UpdateCtx, Vec2, Widget,
+    WidgetExt, WidgetId,
     piet::{LinearGradient, UnitPoint},
     text::TextAlignment,
     widget::{Container, CrossAxisAlignment, Flex, Label, List, Painter, Scroll},
@@ -58,29 +58,35 @@ fn cached_palette(data: &AppState) -> AlbumPalette {
     }
 
     // Try to get the image from the in-memory cache first
-    let image_buf = WebApi::global()
-        .get_cached_image(&url)
-        .or_else(|| {
-            log::debug!("lyrics palette: image not in LRU cache, fetching: {url}");
-            // Not cached -- fetch it synchronously (fast, typically <100ms)
-            match WebApi::global().get_image(url.clone()) {
-                Ok(buf) => {
-                    log::debug!("lyrics palette: fetched image {}x{}", buf.size().width, buf.size().height);
-                    Some(buf)
-                }
-                Err(e) => {
-                    log::warn!("lyrics palette: failed to fetch image: {e}");
-                    None
-                }
+    let image_buf = WebApi::global().get_cached_image(&url).or_else(|| {
+        log::debug!("lyrics palette: image not in LRU cache, fetching: {url}");
+        // Not cached -- fetch it synchronously (fast, typically <100ms)
+        match WebApi::global().get_image(url.clone()) {
+            Ok(buf) => {
+                log::debug!(
+                    "lyrics palette: fetched image {}x{}",
+                    buf.size().width,
+                    buf.size().height
+                );
+                Some(buf)
             }
-        });
+            Err(e) => {
+                log::warn!("lyrics palette: failed to fetch image: {e}");
+                None
+            }
+        }
+    });
 
     if let Some(image_buf) = image_buf {
         let palette = palette::extract_palette(&image_buf);
         log::info!(
             "lyrics palette: extracted from artwork - dominant=({:.0},{:.0},{:.0}), highlight=({:.0},{:.0},{:.0})",
-            palette.dominant.as_rgba().0 * 255.0, palette.dominant.as_rgba().1 * 255.0, palette.dominant.as_rgba().2 * 255.0,
-            palette.highlight.as_rgba().0 * 255.0, palette.highlight.as_rgba().1 * 255.0, palette.highlight.as_rgba().2 * 255.0,
+            palette.dominant.as_rgba().0 * 255.0,
+            palette.dominant.as_rgba().1 * 255.0,
+            palette.dominant.as_rgba().2 * 255.0,
+            palette.highlight.as_rgba().0 * 255.0,
+            palette.highlight.as_rgba().1 * 255.0,
+            palette.highlight.as_rgba().2 * 255.0,
         );
         *guard = Some((url, palette.clone()));
         palette
@@ -121,20 +127,18 @@ pub fn lyrics_widget() -> impl Widget<AppState> {
         ctx.fill(rect, &gradient);
     });
 
-    inner
-        .background(bg)
-        .env_scope(|env, data: &AppState| {
-            if data.config.lyrics_appearance != LyricsAppearance::SpotifyStyled {
-                return;
-            }
-            let palette = cached_palette(data);
-            env.set(theme::LYRIC_HIGHLIGHT, palette.highlight);
-            env.set(theme::LYRIC_HOVER, palette.text);
-            env.set(theme::GREY_500, palette.past);
-            env.set(theme::GREY_100, palette.text);
-            // Override text colors for track info
-            env.set(theme::PLACEHOLDER_COLOR, palette.past);
-        })
+    inner.background(bg).env_scope(|env, data: &AppState| {
+        if data.config.lyrics_appearance != LyricsAppearance::SpotifyStyled {
+            return;
+        }
+        let palette = cached_palette(data);
+        env.set(theme::LYRIC_HIGHLIGHT, palette.highlight);
+        env.set(theme::LYRIC_HOVER, palette.text);
+        env.set(theme::GREY_500, palette.past);
+        env.set(theme::GREY_100, palette.text);
+        // Override text colors for track info
+        env.set(theme::PLACEHOLDER_COLOR, palette.past);
+    })
 }
 
 fn track_info_widget() -> impl Widget<AppState> {

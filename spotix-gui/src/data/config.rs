@@ -15,7 +15,7 @@ use rand::Rng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use spotix_core::{
     audio::equalizer::EqConfig,
-    cache::{mkdir_if_not_exists, CacheHandle},
+    cache::{CacheHandle, mkdir_if_not_exists},
     connection::Credentials,
     oauth::OAuthToken,
     player::{PlaybackConfig, PlaybackEngine as CorePlaybackEngine},

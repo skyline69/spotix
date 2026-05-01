@@ -104,13 +104,7 @@ impl PlaybackIndicator {
 }
 
 impl Widget<PlaybackMarker> for PlaybackIndicator {
-    fn event(
-        &mut self,
-        ctx: &mut EventCtx,
-        event: &Event,
-        data: &mut PlaybackMarker,
-        _env: &Env,
-    ) {
+    fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut PlaybackMarker, _env: &Env) {
         if let Event::AnimFrame(interval) = event {
             if *data == PlaybackMarker::Playing {
                 self.t += (*interval as f64) * 1e-9;
@@ -197,8 +191,7 @@ impl Widget<PlaybackMarker> for PlaybackIndicator {
                 // Primary wave
                 let primary = ((self.t * freq * 2.0 * PI + phase).sin() + 1.0) / 2.0;
                 // Secondary harmonic at ~1.7x frequency for variation
-                let secondary =
-                    ((self.t * freq * 1.7 * 2.0 * PI + phase * 0.6).sin() + 1.0) / 2.0;
+                let secondary = ((self.t * freq * 1.7 * 2.0 * PI + phase * 0.6).sin() + 1.0) / 2.0;
                 let wave = primary * (1.0 - blend) + secondary * blend;
                 min_height + wave * (max_height - min_height)
             } else {
@@ -214,8 +207,6 @@ impl Widget<PlaybackMarker> for PlaybackIndicator {
         }
     }
 }
-
-
 
 #[derive(Clone, Data, Lens)]
 pub struct PlayRow<T> {

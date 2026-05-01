@@ -5,18 +5,17 @@ use std::{
 };
 
 use druid::{
-    image,
+    Color, Data, ImageBuf, Point, Vec2, Widget, WidgetExt, WidgetPod, image,
     kurbo::Circle,
     piet::InterpolationMode,
-    widget::{prelude::*, CrossAxisAlignment, FillStrat, Flex, Image, Label},
-    Color, Data, ImageBuf, Point, Vec2, Widget, WidgetExt, WidgetPod,
+    widget::{CrossAxisAlignment, FillStrat, Flex, Image, Label, prelude::*},
 };
 use time_humanize::HumanTime;
 
 use crate::{
     data::WithCtx,
     error::Error,
-    widget::{icons, MyWidgetExt, PromiseError},
+    widget::{MyWidgetExt, PromiseError, icons},
 };
 
 use super::theme;

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use druid::{
+    Affine, Env, Lens, LensExt, LocalizedString, Menu, MenuItem, RenderContext, Size,
+    TextAlignment, Widget, WidgetExt,
     im::Vector,
     kurbo::BezPath,
     piet::{LineCap, LineJoin, StrokeStyle},
     widget::{CrossAxisAlignment, Either, Flex, Label, LineBreaking, Painter, ViewSwitcher},
-    Affine, Env, Lens, LensExt, LocalizedString, Menu, MenuItem, RenderContext, Size,
-    TextAlignment, Widget, WidgetExt,
 };
 use spotix_core::{
     audio::normalize::NormalizationLevel,
@@ -21,7 +21,7 @@ use crate::{
         QueueEntry, RecommendationsRequest, Track,
     },
     ui::playlist,
-    widget::{fill_between::FillBetween, icons, Empty, MyWidgetExt, RemoteImage},
+    widget::{Empty, MyWidgetExt, RemoteImage, fill_between::FillBetween, icons},
 };
 
 use super::{

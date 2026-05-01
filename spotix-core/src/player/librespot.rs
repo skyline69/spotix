@@ -10,10 +10,8 @@ use std::{
 };
 
 use librespot_core::{
-    Session, SpotifyUri,
-    authentication::Credentials as LibrespotCredentials,
-    cache::Cache as LibrespotCache,
-    config::SessionConfig,
+    Session, SpotifyUri, authentication::Credentials as LibrespotCredentials,
+    cache::Cache as LibrespotCache, config::SessionConfig,
 };
 use librespot_playback::{
     audio_backend,
@@ -64,12 +62,17 @@ impl LibrespotBackend {
             .as_ref()
             .and_then(|dir| {
                 let audio_dir = Some(dir.join("librespot-audio"));
-                LibrespotCache::new(None::<PathBuf>, None::<PathBuf>, audio_dir, audio_cache_limit)
-                    .map_err(|err| {
-                        log::warn!("librespot: failed to create audio cache: {err}");
-                        err
-                    })
-                    .ok()
+                LibrespotCache::new(
+                    None::<PathBuf>,
+                    None::<PathBuf>,
+                    audio_dir,
+                    audio_cache_limit,
+                )
+                .map_err(|err| {
+                    log::warn!("librespot: failed to create audio cache: {err}");
+                    err
+                })
+                .ok()
             })
             .inspect(|_| {
                 log::info!("librespot: audio cache enabled");

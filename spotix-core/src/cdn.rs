@@ -12,7 +12,7 @@ use crate::session::login5::Login5;
 use crate::{
     error::Error,
     item_id::FileId,
-    session::{client_token::ClientTokenProvider, SessionService},
+    session::{SessionService, client_token::ClientTokenProvider},
     system_info::{OS, SPOTIFY_SEMANTIC_VERSION},
     util::default_ureq_agent_builder,
 };

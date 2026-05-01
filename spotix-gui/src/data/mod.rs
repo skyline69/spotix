@@ -400,11 +400,11 @@ impl AppState {
     /// the OAuth token is revoked. Deduplicates so only one shows at a time.
     pub fn oauth_revoked_alert(&mut self) {
         // Don't stack duplicates
-        if self
-            .alerts
-            .iter()
-            .any(|a| a.action.as_ref().is_some_and(|act| act.kind == AlertActionKind::OpenAccountTab))
-        {
+        if self.alerts.iter().any(|a| {
+            a.action
+                .as_ref()
+                .is_some_and(|act| act.kind == AlertActionKind::OpenAccountTab)
+        }) {
             return;
         }
         let alert = Alert {
@@ -427,8 +427,9 @@ impl AppState {
 
     pub fn cleanup_alerts(&mut self) {
         let now = Instant::now();
-        self.alerts
-            .retain(|alert| alert.persistent || now.duration_since(alert.created_at) < ALERT_DURATION);
+        self.alerts.retain(|alert| {
+            alert.persistent || now.duration_since(alert.created_at) < ALERT_DURATION
+        });
     }
 }
 

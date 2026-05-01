@@ -5,7 +5,7 @@ use crate::{
 };
 use std::time::Duration;
 
-use druid::widget::{prelude::*, Controller};
+use druid::widget::{Controller, prelude::*};
 use druid::{Code, Target, TimerToken};
 
 #[derive(Default)]
