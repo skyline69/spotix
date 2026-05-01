@@ -6,6 +6,13 @@ mod controller;
 mod data;
 mod delegate;
 mod error;
+#[cfg(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
 mod tray;
 mod ui;
 mod webapi;

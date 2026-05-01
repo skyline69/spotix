@@ -233,12 +233,20 @@ fn general_tab_widget() -> impl Widget<AppState> {
             .lens(AppState::config.then(Config::enable_pagination)),
     );
 
-    col = col.with_spacer(theme::grid(1.0));
-
-    col = col.with_child(
-        Checkbox::new("Minimize to system tray on close")
-            .lens(AppState::config.then(Config::close_to_tray)),
-    );
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    {
+        col = col.with_spacer(theme::grid(1.0));
+        col = col.with_child(
+            Checkbox::new("Minimize to system tray on close")
+                .lens(AppState::config.then(Config::close_to_tray)),
+        );
+    }
 
     col = col.with_spacer(theme::grid(3.0));
 

@@ -26,7 +26,22 @@ pub struct Delegate {
     artwork_window: Option<WindowId>,
     image_pool: ThreadPool,
     size_updated: bool,
-    tray_handle: Option<ksni::blocking::Handle<crate::tray::SpotixTray>>,
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    tray_handle: Option<crate::tray::TrayHandle>,
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    tray_started: bool,
 }
 
 impl Delegate {
@@ -40,7 +55,22 @@ impl Delegate {
             artwork_window: None,
             image_pool: ThreadPool::with_name("image_loading".into(), MAX_IMAGE_THREADS),
             size_updated: false,
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "freebsd",
+                target_os = "dragonfly",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
             tray_handle: None,
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "freebsd",
+                target_os = "dragonfly",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
+            tray_started: false,
         }
     }
 
@@ -130,20 +160,42 @@ impl Delegate {
     fn show_artwork(&mut self, ctx: &mut DelegateCtx) {
         Self::show_or_create_window(&mut self.artwork_window, ui::artwork_window, ctx);
     }
+
+    fn shutdown_tray(&mut self) {
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        if let Some(handle_arc) = self.tray_handle.take()
+            && let Some(handle) = handle_arc.lock().ok().and_then(|mut g| g.take())
+        {
+            let _ = handle.shutdown();
+        }
+    }
 }
 
 impl AppDelegate<AppState> for Delegate {
     fn window_added(
         &mut self,
-        id: WindowId,
+        _id: WindowId,
         _handle: WindowHandle,
         _data: &mut AppState,
         _env: &Env,
-        ctx: &mut DelegateCtx,
+        _ctx: &mut DelegateCtx,
     ) {
-        if self.main_window == Some(id) && self.tray_handle.is_none() {
-            let sink = ctx.get_external_handle();
-            self.tray_handle = crate::tray::start_tray(sink);
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        if self.main_window == Some(_id) && !self.tray_started {
+            self.tray_started = true;
+            crate::tray::start_tray_async(_ctx.get_external_handle());
         }
     }
 
@@ -155,14 +207,34 @@ impl AppDelegate<AppState> for Delegate {
         data: &mut AppState,
         _env: &Env,
     ) -> Handled {
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
         if cmd.is(cmd::TRAY_SHOW_WINDOW) {
             if let Some(id) = self.main_window {
                 ctx.submit_command(commands::SHOW_WINDOW.to(id));
             } else {
                 self.show_main(&data.config, ctx);
             }
-            Handled::Yes
-        } else if cmd.is(cmd::SHOW_CREDITS_WINDOW) {
+            return Handled::Yes;
+        }
+        #[cfg(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        if let Some(handle) = cmd.get(cmd::TRAY_STARTED) {
+            self.tray_handle = Some(handle.clone());
+            data.tray_active = true;
+            return Handled::Yes;
+        }
+        if cmd.is(cmd::SHOW_CREDITS_WINDOW) {
             let _window_id = self.show_credits(ctx);
             if let Some(track) = cmd.get(cmd::SHOW_CREDITS_WINDOW) {
                 ctx.submit_command(
@@ -226,6 +298,7 @@ impl AppDelegate<AppState> for Delegate {
         } else if cmd.is(cmd::QUIT_APP_WITH_SAVE) {
             data.config.volume = data.playback.volume;
             data.config.save();
+            self.shutdown_tray();
             ctx.submit_command(commands::QUIT_APP);
             Handled::Yes
         } else if cmd.is(commands::QUIT_APP) {
@@ -279,6 +352,7 @@ impl AppDelegate<AppState> for Delegate {
         if self.main_window == Some(id) {
             data.config.volume = data.playback.volume;
             data.config.save();
+            self.shutdown_tray();
             self.main_window = None;
             ctx.submit_command(commands::CLOSE_ALL_WINDOWS);
             ctx.submit_command(commands::QUIT_APP);

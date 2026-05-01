@@ -69,7 +69,10 @@ impl<W: Widget<AppState>> Controller<AppState, W> for CloseTrayController {
         data: &mut AppState,
         env: &Env,
     ) {
-        if matches!(event, druid::Event::WindowCloseRequested) && data.config.close_to_tray {
+        if matches!(event, druid::Event::WindowCloseRequested)
+            && data.config.close_to_tray
+            && data.tray_active
+        {
             data.config.volume = data.playback.volume;
             data.config.save();
             ctx.submit_command(druid::commands::HIDE_WINDOW.to(ctx.window_id()));

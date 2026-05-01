@@ -95,6 +95,10 @@ pub struct AppState {
     pub queue_drag: QueueDragState,
     pub lyrics: Promise<Vector<TrackLines>>,
     pub credits: Option<TrackCredits>,
+    /// True once the system tray icon has successfully registered with a
+    /// StatusNotifier host. Always false on platforms without a tray
+    /// backend or when no host is available.
+    pub tray_active: bool,
 }
 
 #[derive(Clone, Data, Default, Lens)]
@@ -196,6 +200,7 @@ impl AppState {
             finder: Finder::new(),
             lyrics: Promise::Empty,
             credits: None,
+            tray_active: false,
         }
     }
 }
