@@ -8,10 +8,10 @@ build-release:
     cargo build --release
 
 run *ARGS:
-    cargo run --bin spotix-gui -- {{ARGS}}
+    cargo run --bin spotix -- {{ARGS}}
 
 run-release *ARGS:
-    cargo run --bin spotix-gui --release -- {{ARGS}}
+    cargo run --bin spotix --release -- {{ARGS}}
 
 test *ARGS:
     cargo test {{ARGS}}

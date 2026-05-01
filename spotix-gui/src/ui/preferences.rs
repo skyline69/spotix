@@ -14,7 +14,7 @@ use crate::{
     widget::{Async, Border, Checkbox, MyWidgetExt, icons},
 };
 use druid::{
-    Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx,
+    Color, Cursor, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx,
     RenderContext, Selector, Widget, WidgetExt,
     text::ParseFormatter,
     widget::{
@@ -809,18 +809,56 @@ fn account_tab_widget(tab: AccountTab) -> impl Widget<AppState> {
     col.controller(Authenticate::new(tab))
 }
 
+const SPOTIFY_REDIRECT_URL: &str = "http://127.0.0.1:8888/login";
+
+fn show_copy_notification() {
+    let result = notify_rust::Notification::new()
+        .summary("Spotix")
+        .body("Redirect URL copied to clipboard.")
+        .appname("Spotix")
+        .timeout(notify_rust::Timeout::Milliseconds(3000))
+        .show();
+    if let Err(err) = result {
+        log::warn!("failed to show desktop notification: {err}");
+    }
+}
+
 fn spotify_client_id_section() -> impl Widget<AppState> {
+    let redirect_url_link = Label::new(SPOTIFY_REDIRECT_URL)
+        .with_text_color(theme::BLUE_200)
+        .padding((theme::grid(0.5), theme::grid(0.25)))
+        .link()
+        .rounded(2.0)
+        .on_left_click(|ctx, _, _: &mut AppState, _| {
+            ctx.submit_command(cmd::COPY.with(SPOTIFY_REDIRECT_URL.to_string()));
+            show_copy_notification();
+        })
+        .with_cursor(Cursor::Pointer);
+
     Flex::column()
         .cross_axis_alignment(CrossAxisAlignment::Start)
         .with_child(Label::new("Spotify Developer Client ID").with_font(theme::UI_FONT_MEDIUM))
         .with_spacer(theme::grid(1.0))
         .with_child(
             Label::new(
-                "Optional. Use your own Spotify app client ID to avoid shared-client rate limits. \
-                 Add http://127.0.0.1:8888/login as the redirect URL in Spotify Developer settings.",
+                "Optional. Use your own Spotify app client ID to avoid shared-client rate limits.",
             )
             .with_text_color(theme::PLACEHOLDER_COLOR)
             .with_line_break_mode(LineBreaking::WordWrap),
+        )
+        .with_spacer(theme::grid(0.5))
+        .with_child(
+            Flex::row()
+                .cross_axis_alignment(CrossAxisAlignment::Center)
+                .with_child(Label::new("Redirect URL:").with_text_color(theme::PLACEHOLDER_COLOR))
+                .with_spacer(theme::grid(0.5))
+                .with_child(redirect_url_link)
+                .with_spacer(theme::grid(0.5))
+                .with_child(
+                    Label::new("(click to copy)")
+                        .with_text_size(theme::TEXT_SIZE_SMALL)
+                        .with_text_color(theme::PLACEHOLDER_COLOR),
+                ),
         )
         .with_spacer(theme::grid(1.0))
         .with_child(make_input_row(
@@ -829,11 +867,13 @@ fn spotify_client_id_section() -> impl Widget<AppState> {
             WebApiClientIdLens,
         ))
         .with_spacer(theme::grid(1.0))
-        .with_child(Button::new("Open Spotify Developer Dashboard").on_click(|_, _, _| {
-            if let Err(err) = open::that("https://developer.spotify.com/dashboard") {
-                log::warn!("failed to open Spotify Developer Dashboard: {err}");
-            }
-        }))
+        .with_child(
+            Button::new("Open Spotify Developer Dashboard").on_click(|_, _, _| {
+                if let Err(err) = open::that("https://developer.spotify.com/dashboard") {
+                    log::warn!("failed to open Spotify Developer Dashboard: {err}");
+                }
+            }),
+        )
 }
 
 fn lastfm_connected_view() -> impl Widget<AppState> {
