@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
+A `justfile` at the repo root wraps the common workflows (`just --list` to see them). The raw cargo equivalents:
+
 ```bash
 # Build all crates (debug)
 cargo build
@@ -14,9 +16,6 @@ cargo build --release
 # Run the GUI app
 cargo run --bin spotix-gui
 cargo run --bin spotix-gui --release
-
-# Run the CLI example
-cargo run --bin spotix-cli
 
 # Check code style (matches CI)
 cargo clippy -- -D warnings
@@ -43,7 +42,7 @@ sudo dnf install openssl-devel gtk3-devel cairo-devel alsa-lib-devel
 
 ## Architecture
 
-Spotix is a native Spotify client (fork of psst) organized as a Rust workspace with three crates:
+Spotix is a native Spotify client (fork of psst) organized as a Rust workspace with two crates:
 
 ### spotix-core
 Core library handling Spotify connectivity and audio:
@@ -56,14 +55,11 @@ Core library handling Spotify connectivity and audio:
 ### spotix-gui
 Druid-based GUI application:
 - `ui/` - View modules for each screen (home, library, playlist, album, artist, lyrics, preferences, etc.)
-- `controller/` - Event handlers including `playback.rs` (main playback controller, ~59k lines)
+- `controller/` - Event handlers including `playback.rs` (main playback controller)
 - `data/` - Application state models and configuration (`config.rs` for user preferences)
 - `widget/` - Custom Druid widgets
 - `webapi/` - Spotify Web API client
 - `delegate.rs` - Main Druid app delegate connecting UI to core
-
-### spotix-cli
-Minimal CLI player for testing core functionality.
 
 ## Audio Backend Features
 
