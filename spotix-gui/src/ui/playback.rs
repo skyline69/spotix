@@ -1293,24 +1293,20 @@ impl Widget<AppState> for SeekBar {
             .is_some_and(|np| np.is_playing);
 
         match event {
-            Event::MouseMove(_) => {
-                if data.playback.now_playing.is_some() {
-                    ctx.set_cursor(&Cursor::Pointer);
-                }
+            Event::MouseMove(_) if data.playback.now_playing.is_some() => {
+                ctx.set_cursor(&Cursor::Pointer);
             }
-            Event::MouseDown(mouse) => {
-                if mouse.button == MouseButton::Left && data.playback.now_playing.is_some() {
-                    ctx.set_active(true);
-                }
+            Event::MouseDown(mouse)
+                if mouse.button == MouseButton::Left && data.playback.now_playing.is_some() =>
+            {
+                ctx.set_active(true);
             }
-            Event::MouseUp(mouse) => {
-                if ctx.is_active() && mouse.button == MouseButton::Left {
-                    if ctx.is_hot() {
-                        let fraction = mouse.pos.x / ctx.size().width;
-                        ctx.submit_command(cmd::PLAY_SEEK.with(fraction));
-                    }
-                    ctx.set_active(false);
+            Event::MouseUp(mouse) if ctx.is_active() && mouse.button == MouseButton::Left => {
+                if ctx.is_hot() {
+                    let fraction = mouse.pos.x / ctx.size().width;
+                    ctx.submit_command(cmd::PLAY_SEEK.with(fraction));
                 }
+                ctx.set_active(false);
             }
             Event::AnimFrame(interval) => {
                 let dt = (*interval as f64) * 1e-9;
@@ -1373,13 +1369,7 @@ impl Widget<AppState> for SeekBar {
         }
     }
 
-    fn update(
-        &mut self,
-        ctx: &mut UpdateCtx,
-        old_data: &AppState,
-        data: &AppState,
-        _env: &Env,
-    ) {
+    fn update(&mut self, ctx: &mut UpdateCtx, old_data: &AppState, data: &AppState, _env: &Env) {
         let old_np = &old_data.playback.now_playing;
         let new_np = &data.playback.now_playing;
 
@@ -1467,7 +1457,8 @@ impl Widget<AppState> for SeekBar {
 
         // Use the smooth display progress, not the raw backend progress
         let progress = Duration::from_secs_f64(
-            self.display_progress.clamp(0.0, np.item.duration().as_secs_f64()),
+            self.display_progress
+                .clamp(0.0, np.item.duration().as_secs_f64()),
         );
 
         if data.config.dynamic_playing_bar {
@@ -1611,7 +1602,8 @@ fn paint_dynamic_bar(
     ctx.fill(remaining_rect, &pal.remaining);
 
     // Elapsed
-    let elapsed_rect = Rect::from_origin_size(Point::ORIGIN, Size::new(elapsed_width, bounds.height));
+    let elapsed_rect =
+        Rect::from_origin_size(Point::ORIGIN, Size::new(elapsed_width, bounds.height));
     ctx.fill(elapsed_rect, &bar_color);
 }
 

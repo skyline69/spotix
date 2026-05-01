@@ -20,6 +20,8 @@ use crate::{
 use super::{album, artist, playable, playlist, theme, track, utils};
 
 const NUMBER_OF_RESULTS_PER_TOPIC: usize = 5;
+// Spotify's /search endpoint caps `limit` at 10 as of rspotify 0.16; bumping this
+// without raising the API cap will make Spotify return HTTP 400.
 const INDIVIDUAL_TOPIC_RESULTS_LIMIT: usize = 10;
 
 pub const LOAD_RESULTS: Selector<(Arc<str>, Option<SearchTopic>)> =

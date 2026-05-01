@@ -8,20 +8,19 @@ use crate::{
     cmd,
     data::{
         AppState, AudioQuality, Authentication, CacheUsage, Config, EqBands, EqPreset, EqSettings,
-        Preferences, PreferencesTab, Promise, SliderScrollScale, Theme,
-        config::LyricsAppearance,
+        Preferences, PreferencesTab, Promise, SliderScrollScale, Theme, config::LyricsAppearance,
     },
     webapi::WebApi,
-    widget::{icons, Async, Border, Checkbox, MyWidgetExt},
+    widget::{Async, Border, Checkbox, MyWidgetExt, icons},
 };
 use druid::{
+    Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx,
+    RenderContext, Selector, Widget, WidgetExt,
     text::ParseFormatter,
     widget::{
         Button, Controller, CrossAxisAlignment, Flex, Label, LineBreaking, MainAxisAlignment,
         RadioGroup, SizedBox, Slider, TextBox, ViewSwitcher,
     },
-    Color, Data, Env, Event, EventCtx, Insets, Lens, LensExt, LifeCycle, LifeCycleCtx,
-    RenderContext, Selector, Widget, WidgetExt,
 };
 use log::warn;
 use serde::Deserialize;
@@ -243,7 +242,10 @@ fn general_tab_widget() -> impl Widget<AppState> {
         .with_child(
             RadioGroup::column(vec![
                 ("Default", LyricsAppearance::Default),
-                ("Spotify styled (dynamic album colors)", LyricsAppearance::SpotifyStyled),
+                (
+                    "Spotify styled (dynamic album colors)",
+                    LyricsAppearance::SpotifyStyled,
+                ),
             ])
             .lens(AppState::config.then(Config::lyrics_appearance)),
         );
@@ -623,7 +625,7 @@ fn theme_options() -> Vec<(String, Theme)> {
         }
     }
 
-    custom.sort_by(|a, b| a.0.to_lowercase().cmp(&b.0.to_lowercase()));
+    custom.sort_by_key(|entry| entry.0.to_lowercase());
     options.extend(custom);
     options
 }
@@ -828,7 +830,9 @@ fn spotify_client_id_section() -> impl Widget<AppState> {
         ))
         .with_spacer(theme::grid(1.0))
         .with_child(Button::new("Open Spotify Developer Dashboard").on_click(|_, _, _| {
-            open::that("https://developer.spotify.com/dashboard").ok();
+            if let Err(err) = open::that("https://developer.spotify.com/dashboard") {
+                log::warn!("failed to open Spotify Developer Dashboard: {err}");
+            }
         }))
 }
 

@@ -15,6 +15,9 @@ use tokio::sync::Mutex as TokioMutex;
 use maybe_async::maybe_async;
 
 pub struct RSpotifyClient {
+    // Set once on construction. Token refresh runs through `login5_token` which
+    // ignores `creds`, so a hot-applied user client_id (see WebApi::set_webapi_client_id)
+    // will not flow into this field. Keep this field aligned with the bundled client_id.
     creds: Credentials,
     oauth: OAuth,
     config: Config,

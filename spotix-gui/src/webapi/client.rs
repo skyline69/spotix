@@ -25,7 +25,8 @@ use log::info;
 use parking_lot::{Condvar, Mutex};
 use rspotify::clients::{BaseClient, OAuthClient};
 use rspotify::model::{
-    AlbumType as RSpotifyAlbumType, ArtistId, PlayableItem, PlaylistId, SearchType, TimeRange,
+    AlbumType as RSpotifyAlbumType, ArtistId, Country, Market, PlayableItem, PlaylistId,
+    SearchType, TimeRange,
 };
 use rspotify::prelude::Id;
 use rspotify::{ClientError, Token as RSpotifyToken};
@@ -88,6 +89,10 @@ pub struct WebApi {
     rate_limiter: Mutex<RateLimiter>,
     request_gate: RequestGate,
     webapi_client_id: Mutex<String>,
+    /// User's country, populated on first successful `get_user_profile` call
+    /// and used as the `market` parameter on Spotify Web API calls. `None`
+    /// until the profile loads — endpoints fall back to no market hint.
+    user_country: Mutex<Option<Country>>,
     /// Set when an OAuth refresh token is revoked. Checked by the UI
     /// to show a re-authentication prompt.
     oauth_revoked: std::sync::atomic::AtomicBool,
@@ -174,6 +179,7 @@ impl WebApi {
             rate_limiter: Mutex::new(rate_limiter),
             request_gate: RequestGate::new(8),
             webapi_client_id: Mutex::new(webapi_client_id),
+            user_country: Mutex::new(None),
             oauth_revoked: std::sync::atomic::AtomicBool::new(false),
         }
     }
@@ -311,8 +317,8 @@ impl WebApi {
         }
 
         let mut headers = request.get_headers().clone();
-        let needs_client_token = request.base_uri == "api.spotify.com"
-            || request.base_uri == "api-partner.spotify.com";
+        let needs_client_token =
+            request.base_uri == "api.spotify.com" || request.base_uri == "api-partner.spotify.com";
         if needs_client_token {
             headers.insert("app-platform".to_string(), "WebPlayer".to_string());
             match self.client_token_provider.get() {
@@ -812,7 +818,7 @@ impl WebApi {
                         .map(Duration::from_secs);
                     let delay = self.register_429(retry_after, MIN_429_DELAY);
                     log::warn!("webapi: HTTP 429 cooldown {}s (rspotify)", delay.as_secs());
-                    }
+                }
                 Err(Error::WebApiError(err.to_string()))
             }
         }
@@ -871,7 +877,6 @@ impl WebApi {
     fn user_profile_from_rspotify(&self, user: rspotify::model::PrivateUser) -> UserProfile {
         UserProfile {
             display_name: Arc::from(user.display_name.unwrap_or_default()),
-            email: Arc::from(""),
             id: Arc::from(user.id.id()),
         }
     }
@@ -903,7 +908,11 @@ impl WebApi {
     }
 
     fn album_type_from_meta(&self, album: &rspotify::model::SimplifiedAlbum) -> AlbumType {
-        let group = album.album_type.as_deref();
+        // `album_group` is the only field that ever carries `appears_on` for the
+        // /artists/{id}/albums endpoint. rspotify 0.16 marks it deprecated but still
+        // populates it, so we keep the fallback to preserve the "Appears On" tab.
+        #[allow(deprecated)]
+        let group = album.album_group.as_deref().or(album.album_type.as_deref());
         match group {
             Some("single") => AlbumType::Single,
             Some("compilation") => AlbumType::Compilation,
@@ -1474,6 +1483,39 @@ impl WebApi {
         Ok(self.user_profile_from_rspotify(result))
     }
 
+    /// User's market for rspotify calls, derived from the librespot session's
+    /// country (set during login from Spotify's welcome packet). Returns
+    /// `None` if the librespot session hasn't been established yet — callers
+    /// pass that through to rspotify, which omits the `market` query parameter.
+    fn user_market(&self) -> Option<Market> {
+        self.user_country_cached().map(Market::Country)
+    }
+
+    /// Two-letter country code for raw HTTP `market=` query strings.
+    fn user_market_str(&self) -> Option<&'static str> {
+        self.user_country_cached().map(<&'static str>::from)
+    }
+
+    fn user_country_cached(&self) -> Option<Country> {
+        if let Some(country) = *self.user_country.lock() {
+            return Some(country);
+        }
+        let code = self
+            .librespot_state
+            .lock()
+            .as_ref()
+            .map(|state| state.session.country())
+            .unwrap_or_default();
+        if code.is_empty() {
+            return None;
+        }
+        let country: Option<Country> = serde_json::from_value(serde_json::Value::String(code)).ok();
+        if let Some(country) = country {
+            *self.user_country.lock() = Some(country);
+        }
+        country
+    }
+
     // https://developer.spotify.com/documentation/web-api/reference/get-users-top-artists-and-tracks
     pub fn get_user_top_tracks(&self) -> Result<Vector<Arc<Track>>, Error> {
         let cache_key = "all";
@@ -1559,7 +1601,7 @@ impl WebApi {
                                 RSpotifyAlbumType::Compilation,
                                 RSpotifyAlbumType::AppearsOn,
                             ],
-                            None,
+                            self.user_market(),
                             Some(limit),
                             Some(offset),
                         )
@@ -1607,6 +1649,11 @@ impl WebApi {
         self.get_artist_top_tracks_with_policy(id, CachePolicy::Refresh)
     }
 
+    // Spotify removed the public /artists/{id}/top-tracks endpoint and rspotify
+    // has marked the wrapper deprecated. We keep the call so the artist page's
+    // "Top Tracks" section still attempts to populate; if Spotify drops it
+    // entirely the request will fail and the section renders empty.
+    // Tracked: https://github.com/ramsayleung/rspotify/issues/550
     #[allow(deprecated)]
     fn get_artist_top_tracks_with_policy(
         &self,
@@ -1619,7 +1666,7 @@ impl WebApi {
             self.load_cached_value_rspotify("artist-top-tracks", id, policy, || {
                 self.rspotify_call(|| {
                     self.rspotify
-                        .artist_top_tracks(artist_id.as_ref(), None)
+                        .artist_top_tracks(artist_id.as_ref(), self.user_market())
                 })
             })?;
         Ok(self
@@ -1772,7 +1819,8 @@ impl WebApi {
         id: &str,
         policy: CachePolicy,
     ) -> Result<Cached<Arc<Album>>, Error> {
-        let request = &RequestBuilder::new(format!("v1/albums/{id}"), Method::Get, None);
+        let request = &RequestBuilder::new(format!("v1/albums/{id}"), Method::Get, None)
+            .query_opt("market", self.user_market_str());
         let result = self.load_cached_with(request, "album", id, policy)?;
         Ok(result)
     }
@@ -1794,7 +1842,8 @@ impl WebApi {
         id: &str,
         policy: CachePolicy,
     ) -> Result<Cached<Arc<Show>>, Error> {
-        let request = &RequestBuilder::new(format!("v1/shows/{id}"), Method::Get, None);
+        let request = &RequestBuilder::new(format!("v1/shows/{id}"), Method::Get, None)
+            .query_opt("market", self.user_market_str());
 
         let result = self.load_cached_with(request, "show", id, policy)?;
 
@@ -1816,14 +1865,16 @@ impl WebApi {
         let id_list = ids.iter().map(|id| id.0.to_base62()).join(",");
         let cache_key = Self::cache_key(&id_list);
         let request = &RequestBuilder::new("v1/episodes", Method::Get, None)
-            .query("ids", &id_list);
+            .query("ids", &id_list)
+            .query_opt("market", self.user_market_str());
         let (result, _) =
             self.load_cached_value::<Episodes>(request, "episodes", &cache_key, policy)?;
         Ok(result.episodes)
     }
 
     pub fn get_episode(&self, id: &str) -> Result<Arc<Episode>, Error> {
-        let request = &RequestBuilder::new(format!("v1/episodes/{id}"), Method::Get, None);
+        let request = &RequestBuilder::new(format!("v1/episodes/{id}"), Method::Get, None)
+            .query_opt("market", self.user_market_str());
         let result: Cached<Arc<Episode>> = self.load_cached(request, "episode", id)?;
         Ok(result.data)
     }
@@ -1844,7 +1895,8 @@ impl WebApi {
         id: &str,
         policy: CachePolicy,
     ) -> Result<Vector<Arc<Episode>>, Error> {
-        let request = &RequestBuilder::new(format!("v1/shows/{id}/episodes"), Method::Get, None);
+        let request = &RequestBuilder::new(format!("v1/shows/{id}/episodes"), Method::Get, None)
+            .query_opt("market", self.user_market_str());
 
         let mut results = Vector::new();
         self.for_all_pages_cached(
@@ -1873,7 +1925,8 @@ impl WebApi {
 impl WebApi {
     // https://developer.spotify.com/documentation/web-api/reference/get-track
     pub fn get_track(&self, id: &str) -> Result<Arc<Track>, Error> {
-        let request = &RequestBuilder::new(format!("v1/tracks/{id}"), Method::Get, None);
+        let request = &RequestBuilder::new(format!("v1/tracks/{id}"), Method::Get, None)
+            .query_opt("market", self.user_market_str());
         let result = self.load_cached(request, "track", id)?;
         Ok(result.data)
     }
@@ -1929,7 +1982,8 @@ impl WebApi {
             album: Arc<Album>,
         }
 
-        let request = &RequestBuilder::new("v1/me/albums", Method::Get, None);
+        let request = &RequestBuilder::new("v1/me/albums", Method::Get, None)
+            .query_opt("market", self.user_market_str());
 
         Ok(self
             .load_all_pages_cached(request, "saved-albums", "all", CachePolicy::Use)?
@@ -1960,7 +2014,8 @@ impl WebApi {
         struct SavedTrack {
             track: Arc<Track>,
         }
-        let request = &RequestBuilder::new("v1/me/tracks", Method::Get, None);
+        let request = &RequestBuilder::new("v1/me/tracks", Method::Get, None)
+            .query_opt("market", self.user_market_str());
         Ok(self
             .load_all_pages_cached(request, "saved-tracks", "all", CachePolicy::Use)?
             .into_iter()
@@ -1975,7 +2030,8 @@ impl WebApi {
             show: Arc<Show>,
         }
 
-        let request = &RequestBuilder::new("v1/me/shows", Method::Get, None);
+        let request = &RequestBuilder::new("v1/me/shows", Method::Get, None)
+            .query_opt("market", self.user_market_str());
 
         Ok(self
             .load_all_pages_cached(request, "saved-shows", "all", CachePolicy::Use)?
@@ -2172,7 +2228,7 @@ impl WebApi {
                     self.rspotify.playlist_items_manual(
                         playlist_id.as_ref(),
                         None,
-                        None,
+                        self.user_market(),
                         Some(limit as u32),
                         Some(offset as u32),
                     )
@@ -2346,7 +2402,7 @@ impl WebApi {
                     self.rspotify.search_multiple(
                         query,
                         types,
-                        None,
+                        self.user_market(),
                         None,
                         Some(limit as u32),
                         None,
@@ -2601,6 +2657,13 @@ impl RequestBuilder {
     fn query(mut self, key: impl Display, value: impl Display) -> Self {
         self.queries.insert(key.to_string(), value.to_string());
         self
+    }
+
+    fn query_opt(self, key: impl Display, value: Option<impl Display>) -> Self {
+        match value {
+            Some(value) => self.query(key, value),
+            None => self,
+        }
     }
 
     fn header(mut self, key: impl Display, value: impl Display) -> Self {

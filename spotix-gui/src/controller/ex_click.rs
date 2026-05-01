@@ -23,22 +23,21 @@ impl<T: Data> ExClick<T> {
 impl<T: Data, W: Widget<T>> Controller<T, W> for ExClick<T> {
     fn event(&mut self, child: &mut W, ctx: &mut EventCtx, event: &Event, data: &mut T, env: &Env) {
         match event {
-            Event::MouseDown(mouse_event) => {
-                if mouse_event.button == self.button.unwrap_or(mouse_event.button) {
-                    ctx.set_active(true);
-                    ctx.request_paint();
-                }
+            Event::MouseDown(mouse_event)
+                if mouse_event.button == self.button.unwrap_or(mouse_event.button) =>
+            {
+                ctx.set_active(true);
+                ctx.request_paint();
             }
-            Event::MouseUp(mouse_event) => {
+            Event::MouseUp(mouse_event)
                 if mouse_event.button == self.button.unwrap_or(mouse_event.button)
-                    && ctx.is_active()
-                {
-                    ctx.set_active(false);
-                    if ctx.is_hot() {
-                        (self.action)(ctx, mouse_event, data, env);
-                    }
-                    ctx.request_paint();
+                    && ctx.is_active() =>
+            {
+                ctx.set_active(false);
+                if ctx.is_hot() {
+                    (self.action)(ctx, mouse_event, data, env);
                 }
+                ctx.request_paint();
             }
             _ => {}
         }

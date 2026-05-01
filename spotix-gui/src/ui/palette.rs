@@ -47,7 +47,7 @@ pub fn extract_palette(image: &ImageBuf) -> AlbumPalette {
 
     // Sort clusters by population (most dominant first)
     let mut scored: Vec<(usize, [f64; 3])> = clusters;
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|cluster| std::cmp::Reverse(cluster.0));
 
     // Pick dominant and secondary colors
     let dominant_rgb = scored[0].1;
@@ -239,11 +239,7 @@ fn relative_luminance(rgb: &[f64; 3]) -> f64 {
 fn contrast_ratio(a: &[f64; 3], b: &[f64; 3]) -> f64 {
     let la = relative_luminance(a) + 0.05;
     let lb = relative_luminance(b) + 0.05;
-    if la > lb {
-        la / lb
-    } else {
-        lb / la
-    }
+    if la > lb { la / lb } else { lb / la }
 }
 
 /// HSL saturation of an RGB color (0-255 range).
@@ -335,7 +331,7 @@ pub fn extract_bar_palette(image: &ImageBuf) -> BarPalette {
     }
 
     let mut scored: Vec<(usize, [f64; 3])> = clusters;
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|cluster| std::cmp::Reverse(cluster.0));
 
     // Pick the most vibrant (saturated) cluster as accent
     let accent_rgb = scored

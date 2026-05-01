@@ -21,11 +21,9 @@ impl Checkbox {
 impl Widget<bool> for Checkbox {
     fn event(&mut self, ctx: &mut EventCtx, event: &Event, data: &mut bool, _env: &Env) {
         match event {
-            Event::MouseDown(_) => {
-                if !ctx.is_disabled() {
-                    ctx.set_active(true);
-                    ctx.request_paint();
-                }
+            Event::MouseDown(_) if !ctx.is_disabled() => {
+                ctx.set_active(true);
+                ctx.request_paint();
             }
             Event::MouseUp(_) => {
                 if ctx.is_active() && !ctx.is_disabled() {
