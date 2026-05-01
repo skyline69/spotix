@@ -109,9 +109,9 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           mkdir -p spotix-gui/target/release
-          lipo -create -output spotix-gui/target/release/spotix-gui \
-            target/x86_64-apple-darwin/release/spotix-gui \
-            target/aarch64-apple-darwin/release/spotix-gui
+          lipo -create -output spotix-gui/target/release/spotix \
+            target/x86_64-apple-darwin/release/spotix \
+            target/aarch64-apple-darwin/release/spotix
 
       - name: Bundle macOS Release
         if: runner.os == 'macOS'
@@ -144,11 +144,7 @@ jobs:
 
       - name: Make Linux Binary Executable
         if: runner.os == 'Linux'
-        run: chmod +x target/${{ matrix.target }}/release/spotix-gui
-
-      - name: Rename Linux Binary
-        if: runner.os == 'Linux'
-        run: mv target/${{ matrix.target }}/release/spotix-gui target/${{ matrix.target }}/release/spotix
+        run: chmod +x target/${{ matrix.target }}/release/spotix
 
       - name: Upload Linux Binary
         uses: actions/upload-artifact@v4
@@ -156,13 +152,15 @@ jobs:
         with:
           name: spotix-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/spotix
+          if-no-files-found: error
 
       - name: Upload Windows Executable
         uses: actions/upload-artifact@v4
         if: runner.os == 'Windows'
         with:
           name: Spotix.exe
-          path: target/release/spotix-gui.exe
+          path: target/release/spotix.exe
+          if-no-files-found: error
 
   deb:
     if: github.ref == 'refs/heads/release' && github.event_name == 'push'
@@ -310,11 +308,11 @@ jobs:
       - name: Prepare Release Assets
         id: prep_assets
         run: |
-          set -e
+          set -euo pipefail
           mkdir -p artifacts_final
 
           find artifacts -type f -name 'Spotix.dmg' -exec mv {} artifacts_final/Spotix.dmg \;
-          find artifacts -type f -name 'spotix-gui.exe' -exec mv {} artifacts_final/Spotix.exe \;
+          find artifacts -type f -name 'spotix.exe' -exec mv {} artifacts_final/Spotix.exe \;
           find artifacts -type f -name 'spotix-amd64.deb' -exec mv {} artifacts_final/spotix-amd64.deb \;
           find artifacts -type f -name 'spotix-arm64.deb' -exec mv {} artifacts_final/spotix-arm64.deb \;
 
@@ -324,6 +322,15 @@ jobs:
           rm -rf artifacts
           mv artifacts_final artifacts
           ls -l artifacts/
+
+          # Fail loudly if any expected asset is missing, so a botched
+          # build doesn't silently publish an incomplete release.
+          for f in Spotix.dmg Spotix.exe spotix-amd64.deb spotix-arm64.deb spotix-linux-x86_64 spotix-linux-aarch64; do
+            if [ ! -f "artifacts/$f" ]; then
+              echo "::error::missing release asset: $f"
+              exit 1
+            fi
+          done
 
       - name: Create Main Release
         uses: softprops/action-gh-release@v2
